@@ -1,0 +1,26 @@
+{
+  "name": "swipe-the-flat",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "scrape": "node scripts/fetch-products.mjs",
+    "scrape:probe": "node scripts/probe.mjs",
+    "scrape:reset": "node scripts/fetch-products.mjs --reset"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "sharp": "^0.33.5",
+    "vite": "^5.4.11"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.49.1"
+  }
+}

@@ -1,0 +1,14 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# Cached retailer product photos. Scraped for personal use only — not redistributed.
+# Re-created by `npm run scrape`, which re-downloads anything missing from disk.
+public/products/*.jpg
+public/products/*.jpeg
+public/products/*.png
+public/products/*.webp
+
+# Probe output
+scripts/.probe-output/
