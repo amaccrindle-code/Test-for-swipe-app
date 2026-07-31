@@ -110,6 +110,11 @@ word overlap alone misses:
   that merely drops a sub-brand while still leading with a word you asked for
   ("John Lewis Beech Chopping Board" vs "John Lewis ANYDAY beech chopping
   board") only gets a nudge.
+- **IKEA article names** (`KNODD`, `VÖRDA`) act as a floor, not a bonus, and
+  only at IKEA. They prove the right *range*, not the right *variant* — a
+  GRILLSKÄR gas barbecue is not a GRILLSKÄR charcoal one — and the pattern
+  "leading capitals" would otherwise hand the same credit to `OXO` and `LED`
+  at other shops.
 - **Size.** 45L against 50L, or 16 piece against 24 piece, is the wrong
   variant even when every other word agrees. Units are normalised first, so
   `40 l`, `40L` and `40 litres` compare as the same size.
@@ -124,7 +129,7 @@ instead:
 | Band | Score | What the card shows |
 | --- | --- | --- |
 | **exact** | ≥ 0.70 | the product as named |
-| **close** | ≥ 0.45 | the product, plus `CLOSEST TO <what you asked for>` |
+| **close** | ≥ 0.55 | the product, plus `CLOSEST TO <what you asked for>` |
 | **substitute** | > 0 | the product, plus `STAND-IN FOR <what you asked for>` in red |
 | *(none)* | — | the hand-drawn icon and your estimated price |
 

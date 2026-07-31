@@ -21,7 +21,7 @@ import {
   urlsInSource,
   decodeEntities,
 } from "./lib/parse.js";
-import { matchScore, ikeaArticleName, queryVariants, IKEA, JL } from "./lib/retailers.js";
+import { matchScore, ikeaArticleName, queryVariants, bandFor, IKEA, JL } from "./lib/retailers.js";
 
 let passed = 0;
 const failures = [];
@@ -213,6 +213,43 @@ check("IKEA queries lead with article name", ikeaQueries[0], "KNODD");
 const jlQueries = queryVariants("John Lewis ANYDAY cutlery set 16 piece", JL);
 check("JL queries lead with full title", jlQueries[0], "John Lewis ANYDAY cutlery set 16 piece");
 ok("JL queries keep ANYDAY when trimming", jlQueries.some((q) => q.startsWith("ANYDAY")), JSON.stringify(jlQueries));
+
+/* ── Regressions from the first live sample ───────────────── */
+
+/* All three of these scored as confident exact matches against real
+   John Lewis and IKEA listings, because the IKEA article-name bonus was
+   firing on any leading capitals and was strong enough to swamp a real
+   difference. A wrong match labelled "exact" is worse than one labelled
+   "stand-in", so each must now land in a flagged band. */
+
+const oxo = matchScore("OXO Good Grips Stainless Steel Tongs, Set of 2, Silver", "OXO Good Grips kitchen utensil set", { retailer: JL });
+ok("OXO acronym gets no IKEA article bonus", bandFor(oxo) !== "exact", `${oxo.toFixed(2)} → ${bandFor(oxo)}`);
+
+const lenser = matchScore("Ronhill USB Rechargeable LED Running Light, Glow Red", "LED Lenser rechargeable torch", { retailer: JL });
+ok("wrong product behind a shared acronym is a stand-in", bandFor(lenser) === "substitute", `${lenser.toFixed(2)} → ${bandFor(lenser)}`);
+
+const fuel = matchScore("GRILLSKÄR Gas barbecue 72x61 cm", "GRILLSKÄR charcoal barbecue", { retailer: IKEA });
+ok("gas is not charcoal even with the article matching", bandFor(fuel) !== "exact", `${fuel.toFixed(2)} → ${bandFor(fuel)}`);
+
+/* The article bonus must still earn its keep on genuine IKEA matches. */
+const knodd = matchScore("KNODD Bin with lid 40 l", "KNODD bin with lid 40L", { retailer: IKEA });
+check("correct IKEA product stays exact", bandFor(knodd), "exact");
+const pruta = matchScore("PRUTA Food container with lid, set of 17", "PRUTA food container 17 piece", { retailer: IKEA });
+check("IKEA naming drift stays exact", bandFor(pruta), "exact");
+
+/* John Lewis pads its titles; a long name that contains everything
+   asked for should still read as exact. */
+const tv = matchScore(
+  "Samsung QE55Q7F2A (2025) QLED HDR 4K Ultra HD Smart TV, 55 inch with TVPlus, Black",
+  "Samsung 55 inch QLED smart TV",
+  { retailer: JL }
+);
+check("verbose John Lewis title still exact", bandFor(tv), "exact");
+
+/* An article name proves the range, not the variant: it lifts a poor
+   score to "close" but must never manufacture an exact match. */
+const floorOnly = matchScore("KNODD Something Entirely Different", "KNODD bin with lid 40L", { retailer: IKEA });
+ok("article name is a floor, not a free pass", bandFor(floorOnly) !== "exact", `${floorOnly.toFixed(2)} → ${bandFor(floorOnly)}`);
 
 /* ── Report ───────────────────────────────────────────────── */
 

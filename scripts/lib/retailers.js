@@ -31,7 +31,7 @@ import { extractProduct, links, urlsInSource } from "./parse.js";
 export const IKEA = "IKEA";
 export const JL = "John Lewis";
 
-export const QUALITY = { exact: 0.7, close: 0.45 };
+export const QUALITY = { exact: 0.7, close: 0.55 };
 
 export function bandFor(score) {
   if (score >= QUALITY.exact) return "exact";
@@ -74,7 +74,7 @@ const sizes = (list) => list.filter((t) => SIZE_RE.test(t));
    Deluxe Mirage Sensor Bin 50L" share two words out of four, so two
    penalties sit on top to keep the right product ahead of its
    neighbours in the ranking. */
-export function matchScore(candidateName, wantedTitle) {
+export function matchScore(candidateName, wantedTitle, { retailer } = {}) {
   const want = tokens(wantedTitle);
   const gotList = tokens(candidateName);
   const got = new Set(gotList);
@@ -82,8 +82,20 @@ export function matchScore(candidateName, wantedTitle) {
 
   let score = want.filter((t) => got.has(t)).length / want.length;
 
-  const article = ikeaArticleName(wantedTitle);
-  if (article && got.has(article.toLowerCase())) score = Math.min(1, score + 0.4);
+  /* An IKEA article name is a strong signal, but only at IKEA, and only
+     about the product *line*. Two mistakes to avoid:
+
+     Scoping. The pattern is "leading capitals", which also matches OXO
+     and LED, so at John Lewis it was handing a brand bonus to any
+     acronym — "LED Lenser rechargeable torch" scored 0.90 against a
+     Ronhill running light.
+
+     Strength. As an additive bonus it swamped real differences:
+     GRILLSKÄR charcoal against GRILLSKÄR gas scored a confident 1.00.
+     A floor says "at least the right range" without claiming the right
+     variant, which is what an article name actually tells you. */
+  const article = retailer === IKEA ? ikeaArticleName(wantedTitle) : null;
+  if (article && got.has(article.toLowerCase())) score = Math.max(score, 0.6);
 
   /* A missing lead token means one of two very different things.
 
@@ -255,7 +267,7 @@ function createAdapter(config) {
           const url = canonical(href);
           if (seen.has(url)) continue;
           seen.add(url);
-          candidates.push({ url, slugScore: matchScore(slugName(url), title) });
+          candidates.push({ url, slugScore: matchScore(slugName(url), title, { retailer: config.name }) });
           added += 1;
         }
         tried.push({ step: "search:links", query, ok: added > 0, found: added });
@@ -281,7 +293,7 @@ function createAdapter(config) {
         const product = await readProductPage(candidate.url, tried);
         if (!product) continue;
 
-        const score = matchScore(product.name || slugName(candidate.url), title);
+        const score = matchScore(product.name || slugName(candidate.url), title, { retailer: config.name });
         tried.push({
           step: "score",
           url: candidate.url,
@@ -344,7 +356,7 @@ function createIkeaAdapter(config) {
         try {
           const { json } = await fetchJson(api);
           const ranked = ikeaCandidatesFromApi(json)
-            .map((c) => ({ ...c, score: matchScore(c.name || slugName(c.url), title) }))
+            .map((c) => ({ ...c, score: matchScore(c.name || slugName(c.url), title, { retailer: IKEA }) }))
             .sort((a, b) => b.score - a.score);
           tried.push({ step: "ikea:api", query, ok: ranked.length > 0, found: ranked.length });
 
