@@ -28,17 +28,20 @@ const rowsFor = () =>
     const product = PRODUCTS[option.key] || null;
     const status = !product
       ? "missing"
-      : !product.image
-        ? "nophoto"
-        : product.match != null && product.match < WEAK
-          ? "weak"
-          : "ok";
+      : product.rejected && !product.image
+        ? "rejected"
+        : !product.image
+          ? "nophoto"
+          : product.match != null && product.match < WEAK
+            ? "weak"
+            : "ok";
     return { ...option, product, status };
   });
 
 const STATUS = {
   ok: { label: "Resolved", colour: T.olive },
   weak: { label: "Weak match", colour: "#9A7B18" },
+  rejected: { label: "Near miss", colour: "#9A7B18" },
   nophoto: { label: "No photo", colour: T.brick },
   missing: { label: "Not scraped", colour: T.brick },
 };
@@ -120,7 +123,7 @@ export default function Review() {
         <Summary counts={counts} total={rows.length} />
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 22, alignItems: "center" }}>
-          {["all", "ok", "weak", "nophoto", "missing"].map((f) => (
+          {["all", "ok", "weak", "rejected", "nophoto", "missing"].map((f) => (
             <Chip key={f} active={filter === f} onClick={() => setFilter(f)}>
               {f === "all" ? "Everything" : STATUS[f].label} <Count>{counts[f] || 0}</Count>
             </Chip>
@@ -185,6 +188,7 @@ function Summary({ counts, total }) {
     <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 22 }}>
       <Stat big label="Clean photos" value={`${withPhoto}`} sub={`${pct}% of ${total}`} colour={T.olive} />
       <Stat label="Weak matches" value={String(counts.weak || 0)} sub="check these first" colour="#9A7B18" />
+      <Stat label="Near misses" value={String(counts.rejected || 0)} sub="a click to accept" colour="#9A7B18" />
       <Stat label="No photo" value={String(counts.nophoto || 0)} sub="resolved but no image" colour={T.brick} />
       <Stat label="Not scraped" value={String(counts.missing || 0)} sub={scraped ? "re-run to retry" : "run npm run scrape"} colour={T.brick} />
     </div>
@@ -286,6 +290,39 @@ function Row({ row, draft, onDraft }) {
         <div style={{ fontFamily: MONO, fontSize: 12, color: T.ink, marginTop: 3 }}>
           {product?.price != null ? money(product.price) : <span style={{ color: T.inkFaint }}>no scraped price</span>}
         </div>
+
+        {product?.rejected && (
+          <div style={{ marginTop: 8, padding: "9px 11px", background: T.oliveWash, borderRadius: 3 }}>
+            <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".14em", color: T.inkFaint }}>
+              CLOSEST FOUND · SCORED {product.rejected.match?.toFixed(2)} · TOO DIFFERENT TO TRUST
+            </div>
+            <div style={{ fontFamily: BODY, fontSize: 13.5, color: T.ink, marginTop: 4 }}>
+              {product.rejected.name}
+              {product.rejected.price != null && (
+                <span style={{ fontFamily: MONO, fontSize: 12, marginLeft: 8 }}>{money(product.rejected.price)}</span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <Link href={product.rejected.url}>have a look ↗</Link>
+              <button
+                onClick={() => onDraft(product.rejected.url)}
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 10.5,
+                  letterSpacing: ".08em",
+                  padding: "5px 9px",
+                  borderRadius: 2,
+                  cursor: "pointer",
+                  background: T.olive,
+                  color: "#F7F5EE",
+                  border: `1px solid ${T.olive}`,
+                }}
+              >
+                USE THIS ONE
+              </button>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "flex", gap: 12, marginTop: 7, flexWrap: "wrap" }}>
           {product?.sourceUrl && (

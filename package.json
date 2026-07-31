@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node scripts/test-parsers.mjs",
     "scrape": "node scripts/fetch-products.mjs",
     "scrape:probe": "node scripts/probe.mjs",
+    "scrape:sample": "node scripts/sample.mjs",
     "scrape:reset": "node scripts/fetch-products.mjs --reset"
   },
   "dependencies": {

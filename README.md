@@ -25,10 +25,11 @@ just make it nicer.
 | --- | --- |
 | `npm run dev` | The app on `/`, the scrape review on `/review.html` |
 | `npm run scrape` | Resolve products, cache images, write `products.json` |
-| `npm run scrape:probe` | Fetch one product page per retailer and print what parsed |
+| `npm run scrape:probe` | Resolve one product per retailer and print what parsed |
+| `npm run scrape:sample` | Score a spread of options to measure the real hit rate |
 | `npm run scrape:reset` | Throw away `products.json` and start over |
 | `npm run build` | Production build of both pages |
-| `node scripts/test-parsers.mjs` | Parser tests against fixtures, no network |
+| `npm test` | Parser and matching tests against fixtures, no network |
 
 ## Start with the probe
 
@@ -55,6 +56,27 @@ npx playwright install chromium
 John Lewis is still the bulk of the work — 136 of the 210 options against
 IKEA's 74 — but the risk there is picking the *wrong* product, not being
 locked out. See matching below.
+
+## Measuring the hit rate
+
+`npm run scrape:sample` runs a spread of options across both retailers, all
+rooms and all three tiers, printing wanted against resolved with the score.
+It writes nothing and downloads no images, so it is safe to re-run while
+tuning. Use it to decide whether a matching problem is worth chasing before
+committing to a full 15-minute scrape.
+
+It groups results four ways:
+
+- **✓ strong** — confident match, score ≥ 0.70
+- **~ weak** — resolved but worth eyeballing
+- **✗ rejected** — found something plausible but too different to trust
+- **· nothing** — no candidate at all
+
+A pile of *rejected* results at John Lewis usually means the titles in
+`items.js` are descriptions rather than real listings — "ANYDAY sensor bin
+45L" is a reasonable thing to want but may not be a product John Lewis
+actually sells. The fix for that is renaming those options to real products,
+not loosening the matching.
 
 ## How the scraper works
 
@@ -105,6 +127,11 @@ npm run scrape -- --rate=2000         # slow it down
 Open `/review.html`. Every option is listed with what was wanted on the left
 and what the scraper resolved on the right, filtered by status — weak matches
 and failures first.
+
+Rejected near-misses are kept rather than thrown away. The scraper records
+what it found and why it refused it, and the review page shows it with a
+**USE THIS ONE** button — one click if the substitute is actually fine. These
+never reach a swipe card on their own; only your acceptance promotes them.
 
 When one is wrong: open the retailer, find the right product, paste its URL
 into the box on that row. The page builds the corrected `overrides.json` at

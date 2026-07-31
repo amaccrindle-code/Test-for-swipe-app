@@ -73,8 +73,20 @@ export function matchScore(candidateName, wantedTitle) {
   const article = ikeaArticleName(wantedTitle);
   if (article && got.has(article.toLowerCase())) score = Math.min(1, score + 0.4);
 
+  /* A missing lead token means one of two very different things.
+
+     If the candidate leads with some other brand — ANYDAY wanted, EKO
+     offered — it is a different product line and the penalty is harsh.
+     If it just omits a sub-brand while still leading with a word we
+     asked for ("John Lewis Beech Chopping Board" against "John Lewis
+     ANYDAY beech chopping board"), that is naming drift on the same
+     product and deserves only a nudge. */
   const lead = want.find((t) => !SIZE_RE.test(t));
-  if (lead && !got.has(lead)) score *= 0.5;
+  if (lead && !got.has(lead)) {
+    const theirLead = gotList.find((t) => !SIZE_RE.test(t));
+    const differentBrand = theirLead && !want.includes(theirLead);
+    score *= differentBrand ? 0.5 : 0.85;
+  }
 
   const wantSizes = sizes(want);
   const gotSizes = sizes(gotList);
@@ -272,10 +284,14 @@ const jlAdapter = {
       const page = await getPage(jlAdapter.searchUrl(q), tried, "jl:search");
       if (!page?.html) continue;
 
-      const found = [
-        ...links(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h)),
-        ...urlsInSource(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h)),
-      ];
+      /* Anchors are the curated result list. The source sweep also
+         catches "customers also viewed" and carousel state, which is
+         why an unfiltered pass returned 118 candidates for one bin —
+         so only fall back to it when there are no anchors at all. */
+      const anchored = links(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h));
+      const found = anchored.length
+        ? anchored
+        : urlsInSource(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h));
       let added = 0;
       for (const href of found) {
         const url = canonicalJlUrl(href);
@@ -323,6 +339,10 @@ const jlAdapter = {
         ? `best match "${best.name}" scored ${best.score.toFixed(2)}, below ${minScore}`
         : "no candidate page could be read",
       tried,
+      /* Rejected, but recorded: a near-miss is often a perfectly good
+         substitute and only Andy can judge that. The scraper stores it
+         without using it, and the review page offers it for one-click
+         acceptance. */
       near: best || null,
     };
   },

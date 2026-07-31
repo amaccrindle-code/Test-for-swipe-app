@@ -194,6 +194,16 @@ const p16 = matchScore("John Lewis ANYDAY Cutlery Set, 16 Piece", "John Lewis AN
 const p24 = matchScore("John Lewis ANYDAY Cutlery Set, 24 Piece", "John Lewis ANYDAY cutlery set 16 piece");
 ok("matching piece count wins", p16 > p24, `${p16.toFixed(2)} vs ${p24.toFixed(2)}`);
 
+/* Naming drift on the same product is not a brand mismatch: John Lewis
+   lists its own-brand goods with and without the ANYDAY sub-brand, and
+   dropping it must not sink an otherwise exact match. */
+const drift = matchScore("John Lewis Beech Chopping Board", "John Lewis ANYDAY beech chopping board");
+ok("own-brand naming drift still passes", drift >= 0.55, `scored ${drift.toFixed(2)}`);
+
+const otherBrand = matchScore("EKO Ecofly Pedal Bin, Stainless Steel, 45L", "ANYDAY sensor bin 45L");
+ok("a different brand is still rejected", otherBrand < 0.35, `scored ${otherBrand.toFixed(2)}`);
+ok("naming drift beats a different brand", drift > otherBrand * 1.5);
+
 /* A missing brand must not be rescued by generic words alone. */
 const generic = matchScore("Joseph Joseph Chopping Board Set", "Brabantia Touch Bin 40L");
 ok("unrelated product scores near zero", generic < 0.2, `scored ${generic.toFixed(2)}`);

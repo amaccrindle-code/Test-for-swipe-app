@@ -188,6 +188,10 @@ async function resolveOption(option) {
   if (!found.ok) {
     const err = new Error(found.reason);
     err.tried = found.tried;
+    /* Carry the rejected near-miss through to the caller so it can be
+       recorded. It is not good enough to show on a card, but it is
+       often a fine substitute and only Andy can judge that. */
+    err.near = found.near;
     throw err;
   }
   if (!found.image) {
@@ -254,6 +258,29 @@ for (const [index, option] of work.entries()) {
     console.log(`${label}  ✓ ${shortTitle}  →  ${price}  ${found.strategy}${warn}`);
   } catch (err) {
     failures.push({ option, reason: err.message, tried: err.tried });
+
+    /* Record the near-miss under a separate key. The app ignores
+       anything without `localImage`, so this never reaches a card —
+       it only surfaces on the review page as a suggestion. */
+    if (err.near) {
+      products[option.key] = {
+        localImage: null,
+        sourceUrl: null,
+        price: null,
+        name: null,
+        retailer: option.retailer,
+        rejected: {
+          name: err.near.name,
+          url: err.near.url,
+          price: err.near.price ?? null,
+          image: err.near.image ?? null,
+          match: Number(err.near.score.toFixed(2)),
+        },
+        scrapedAt: new Date().toISOString(),
+      };
+      dirty = true;
+      await saveProducts();
+    }
     console.log(`${label}  ✗ ${shortTitle}  →  ${err.message}`);
   }
 }
