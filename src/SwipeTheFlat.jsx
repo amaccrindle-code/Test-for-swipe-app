@@ -4,6 +4,7 @@ import { ITEMS, ALREADY, searchUrl } from "./data/items.js";
 import { productFor, SCRAPE_STATS } from "./data/products.js";
 import { T, DISPLAY, BODY, MONO, money } from "./theme.js";
 import { downloadBasket } from "./lib/basketSheet.js";
+import ProductImage from "./ProductImage.jsx";
 
 const STORAGE_KEY = "flatswipe:v2";
 
@@ -525,37 +526,23 @@ export default function SwipeKitOut() {
    Bits
    ──────────────────────────────────────────────────────────── */
 function PhotoPane({ product }) {
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [product && product.image]);
-
   return (
     <div style={{ height: 250, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.rule}`, position: "relative" }}>
-      {broken ? (
-        <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".14em", color: T.inkFaint }}>PHOTO WOULD NOT LOAD</div>
-      ) : (
-        <img
-          src={product.image}
-          alt=""
-          onError={() => setBroken(true)}
-          draggable={false}
-          style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }}
-        />
-      )}
+      <ProductImage
+        product={product}
+        draggable={false}
+        fallbackLabel="PHOTO WOULD NOT LOAD"
+        style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }}
+      />
     </div>
   );
 }
 
 function Thumb({ product }) {
-  const [broken, setBroken] = useState(false);
-  if (!product || !product.image || broken)
-    return <div style={{ width: 34, height: 34, background: T.oliveWash, borderRadius: 3, flexShrink: 0 }} />;
   return (
-    <img
-      src={product.image}
-      alt=""
-      onError={() => setBroken(true)}
-      style={{ width: 34, height: 34, objectFit: "contain", background: "#fff", borderRadius: 3, flexShrink: 0 }}
-    />
+    <div style={{ width: 34, height: 34, background: "#fff", borderRadius: 3, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+      <ProductImage product={product} fallbackLabel="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+    </div>
   );
 }
 
@@ -586,11 +573,9 @@ function OptionStrip({ item, current, onPick }) {
               borderRadius: 4,
             }}
           >
-            <img
-              src={opt.product.image}
-              alt=""
-              style={{ width: "100%", height: 46, objectFit: "contain", background: "#fff", borderRadius: 2 }}
-            />
+            <span style={{ width: "100%", height: 46, background: "#fff", borderRadius: 2, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+              <ProductImage product={opt.product} fallbackLabel="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+            </span>
             <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: ".1em", color: active ? T.oliveDeep : T.inkFaint }}>
               {opt.tier.toUpperCase()}
             </span>

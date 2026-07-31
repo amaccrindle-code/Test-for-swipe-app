@@ -1,0 +1,70 @@
+# Publishes the app to GitHub Pages on every push.
+#
+# The site is static — products.json is committed, so the build needs no
+# network and no secrets. Cached product images are gitignored (scraped
+# for personal use, not redistributed), so the deployed site falls back
+# to each retailer's own image URL. See src/ProductImage.jsx.
+#
+# One-time setup, if the first run fails: repository Settings → Pages →
+# Build and deployment → Source → "GitHub Actions".
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/test-swipe-app-setup-urrv2h
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it, but only queue
+# one behind it — a third push supersedes the second.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      # A project page is served from /<repo>/, so asset URLs need that
+      # prefix. Passed here rather than set in vite.config.js so local
+      # dev and preview keep serving from the root.
+      - name: Build
+        run: npm run build -- --base=/${{ github.event.repository.name }}/
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

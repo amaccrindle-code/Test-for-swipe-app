@@ -26,8 +26,22 @@ function merge(base = {}, over = {}) {
      But fall back to the retailer's own URL when the download failed —
      a browser loading it directly usually succeeds where a Node fetch
      got a 403, and a real photo from a remote URL beats no photo. */
-  out.image = out.localImage || out.remoteImage || out.image || null;
+  /* Cached files are recorded as "/products/x.jpg", absolute from the
+     site root. A project page is served from a subpath, so they need
+     the base prefix or every one 404s before falling back. BASE_URL is
+     "/" in dev and "/Test-for-swipe-app/" in the Pages build. */
+  const localPath = out.localImage
+    ? `${import.meta.env.BASE_URL}${String(out.localImage).replace(/^\//, "")}`
+    : null;
+
+  out.image = localPath || out.remoteImage || out.image || null;
   out.imageIsRemote = !out.localImage && Boolean(out.remoteImage || out.image);
+  /* Cached images are gitignored — scraped for personal use, not
+     redistributed — so a fresh clone or a deployed build has
+     products.json but none of the files. Keeping the retailer's own URL
+     as a second chance means the hosted site still shows photos without
+     shipping their assets. */
+  out.fallbackImage = localPath && out.remoteImage ? out.remoteImage : null;
   out.overridden = Object.keys(over).length > 0;
   return out;
 }
