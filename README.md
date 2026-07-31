@@ -42,15 +42,19 @@ Run it before the full scrape. If it says the approach holds, run the scrape.
 If something did not resolve, the output shows which step failed and is worth
 pasting back rather than guessing.
 
-**John Lewis is the hard half** — 136 of the 210 options, against IKEA's 74.
-If plain fetch gets blocked there, install the browser fallback:
+**John Lewis turned out not to need a browser.** A plain fetch gets through
+and the product pages carry JSON-LD, so the Playwright fallback is there for
+insurance rather than routine use. If a page ever does come back `403`/`429`
+the scraper escalates automatically and says so in the log; install the
+browser first if you want that rung available:
 
 ```bash
 npx playwright install chromium
 ```
 
-The scraper escalates to a headless browser automatically for pages that come
-back `403`/`429`, and says so in the log when it does.
+John Lewis is still the bulk of the work — 136 of the 210 options against
+IKEA's 74 — but the risk there is picking the *wrong* product, not being
+locked out. See matching below.
 
 ## How the scraper works
 
@@ -64,9 +68,22 @@ you where it fell over rather than just that it did:
   `og:image` / `product:price:amount`) off the product page.
 - **Either** — if a page returns 403/429, retry it in a headless browser.
 
-Candidates are scored against the wanted title by word overlap, with a bonus
-for an exact IKEA article-name match (`KNODD`, `VÖRDA`). Anything scoring
-below 0.6 is flagged as a weak match in the log and on the review page.
+Candidates are scored against the wanted title by word overlap, plus a bonus
+for an exact IKEA article-name match (`KNODD`, `VÖRDA`) and two penalties that
+word overlap alone misses:
+
+- **Lead token.** The first meaningful word is nearly always the brand or
+  range. A candidate without it is a different product line — which is how
+  "ANYDAY sensor bin 45L" was resolving to an EKO bin on shared words alone.
+- **Size.** 45L against 50L, or 16 piece against 24 piece, is the wrong
+  variant even when every other word agrees. Units are normalised first, so
+  `40 l`, `40L` and `40 litres` compare as the same size.
+
+For John Lewis the scraper opens the top few candidates and keeps the
+**best-scoring resolved product**, rather than the first one over the
+threshold — the search page returns eight near-identical bins and the right
+one does not reliably sort first. Anything below 0.6 is flagged as a weak
+match in the log and on the review page.
 
 It is **resumable**: anything already in `products.json` with its image still
 on disk is skipped, so you can stop it and rerun without redoing work. It

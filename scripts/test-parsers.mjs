@@ -170,6 +170,34 @@ ok(
 );
 check("empty match is zero", matchScore("", "anything"), 0);
 
+/* Regression: the live probe resolved "ANYDAY sensor bin 45L" to "EKO
+   Deluxe Mirage Sensor Bin, 50L" at 0.50 — wrong brand, wrong size,
+   yet over the old 0.4 threshold. Both signals must now sink it. */
+const ekoScore = matchScore("EKO Deluxe Mirage Sensor Bin, 50L, Stainless Steel", "ANYDAY sensor bin 45L");
+ok("wrong brand and size is rejected", ekoScore < 0.3, `scored ${ekoScore.toFixed(2)}`);
+
+const rightBin = matchScore("John Lewis ANYDAY Sensor Bin, 45L, Stainless Steel", "ANYDAY sensor bin 45L");
+ok("right brand and size scores high", rightBin > 0.85, `scored ${rightBin.toFixed(2)}`);
+ok("right product beats the EKO near-miss", rightBin > ekoScore * 2.5);
+
+/* Size alone should separate two otherwise identical listings. */
+const size40 = matchScore("Brabantia Touch Bin, 40L, Matt Steel", "Brabantia Touch Bin 40L");
+const size60 = matchScore("Brabantia Touch Bin, 60L, Matt Steel", "Brabantia Touch Bin 40L");
+ok("matching size wins over mismatched size", size40 > size60, `${size40.toFixed(2)} vs ${size60.toFixed(2)}`);
+
+/* Units normalise: "40 l", "40L" and "40 litres" are the same size. */
+check("litres and L are the same token", matchScore("KNODD Bin with lid 40 litres", "KNODD bin with lid 40L") > 0.9, true);
+check("IKEA API name still scores 1.00", Number(matchScore("KNODD Bin with lid 40 l", "KNODD bin with lid 40L").toFixed(2)), 1);
+
+/* Piece counts behave like sizes. */
+const p16 = matchScore("John Lewis ANYDAY Cutlery Set, 16 Piece", "John Lewis ANYDAY cutlery set 16 piece");
+const p24 = matchScore("John Lewis ANYDAY Cutlery Set, 24 Piece", "John Lewis ANYDAY cutlery set 16 piece");
+ok("matching piece count wins", p16 > p24, `${p16.toFixed(2)} vs ${p24.toFixed(2)}`);
+
+/* A missing brand must not be rescued by generic words alone. */
+const generic = matchScore("Joseph Joseph Chopping Board Set", "Brabantia Touch Bin 40L");
+ok("unrelated product scores near zero", generic < 0.2, `scored ${generic.toFixed(2)}`);
+
 const ikeaQueries = queryVariants("KNODD bin with lid 40L", IKEA);
 check("IKEA queries lead with article name", ikeaQueries[0], "KNODD");
 const jlQueries = queryVariants("John Lewis ANYDAY cutlery set 16 piece", JL);

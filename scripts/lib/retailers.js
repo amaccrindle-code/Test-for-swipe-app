@@ -24,33 +24,61 @@ export const JL = "John Lewis";
 /* ── Matching ─────────────────────────────────────────────── */
 
 const STOP = new Set([
-  "the", "a", "an", "and", "of", "for", "with", "in", "set", "piece", "pc",
-  "pcs", "pack", "john", "lewis", "cm", "ltr", "l",
+  "the", "a", "an", "and", "of", "for", "with", "in", "set", "pack", "john", "lewis",
 ]);
 
-function tokens(str) {
+/* Units get folded onto their number so "40 l", "40L" and "40 litres"
+   all become the one token "40l" — a size mismatch is one of the
+   clearest signals that a candidate is the wrong product. */
+const UNIT = { litres: "l", litre: "l", ltr: "l", l: "l", cm: "cm", mm: "mm", pieces: "pc", piece: "pc", pcs: "pc", pc: "pc" };
+const UNIT_RE = /(\d+)\s*(litres|litre|ltr|l|cm|mm|pieces|piece|pcs|pc)\b/g;
+
+function normalise(str) {
   return String(str || "")
     .toLowerCase()
-    .replace(/[^a-z0-9åäöéø\s]/gi, " ")
+    .replace(/[^a-z0-9åäöéø\s]/g, " ")
+    .replace(UNIT_RE, (_, n, u) => n + UNIT[u]);
+}
+
+function tokens(str) {
+  return normalise(str)
     .split(/\s+/)
     .filter((t) => t && !STOP.has(t));
 }
 
+const SIZE_RE = /^\d+(l|cm|mm|pc)$/;
+const sizes = (list) => list.filter((t) => SIZE_RE.test(t));
+
 /* How well does a candidate product name match what we asked for?
    0 → nothing in common, 1 → every meaningful word accounted for.
-   The IKEA article name is worth a big bonus: if the candidate is
-   called KNODD and we asked for KNODD, it is the right product
-   whatever the rest of the description says. */
+
+   Word overlap alone is not enough. "ANYDAY sensor bin 45L" and "EKO
+   Deluxe Mirage Sensor Bin 50L" share two words out of four and score
+   0.50, but they are different products at different prices. So two
+   penalties sit on top:
+
+     lead token  the first meaningful word is almost always the brand or
+                 range (ANYDAY, Brabantia, KNODD). A candidate missing it
+                 is a different product line.
+     size        45L against 50L, or 16 piece against 24 piece, is the
+                 wrong variant even when every other word agrees. */
 export function matchScore(candidateName, wantedTitle) {
   const want = tokens(wantedTitle);
-  const got = new Set(tokens(candidateName));
+  const gotList = tokens(candidateName);
+  const got = new Set(gotList);
   if (!want.length || !got.size) return 0;
 
-  const hits = want.filter((t) => got.has(t)).length;
-  let score = hits / want.length;
+  let score = want.filter((t) => got.has(t)).length / want.length;
 
   const article = ikeaArticleName(wantedTitle);
   if (article && got.has(article.toLowerCase())) score = Math.min(1, score + 0.4);
+
+  const lead = want.find((t) => !SIZE_RE.test(t));
+  if (lead && !got.has(lead)) score *= 0.5;
+
+  const wantSizes = sizes(want);
+  const gotSizes = sizes(gotList);
+  if (wantSizes.length && gotSizes.length && !wantSizes.some((s) => gotSizes.includes(s))) score *= 0.6;
 
   return score;
 }
@@ -227,53 +255,75 @@ const jlAdapter = {
 
   searchUrl: (q) => `https://www.johnlewis.com/search?search-term=${encodeURIComponent(q)}`,
 
-  async find(title, { minScore = 0.4, maxPageFetches = 2 } = {}) {
+  /* Gather candidates across every query variant first, then read the
+     most promising product pages and score their real names.
+
+     Scoring the URL slug alone is too crude to pick between eight
+     near-identical bins, and taking the first candidate over the
+     threshold means a mediocre match wins simply by sorting earlier.
+     So: rank by slug, open the best few, and keep the highest-scoring
+     resolved product — stopping early only when one is clearly right. */
+  async find(title, { minScore = 0.55, confident = 0.85, maxPageFetches = 3 } = {}) {
     const tried = [];
-    let bestSeen = null;
+    const seen = new Set();
+    const candidates = [];
 
     for (const q of queryVariants(title, JL)) {
-      const searchUrl = jlAdapter.searchUrl(q);
-      const page = await getPage(searchUrl, tried, "jl:search");
+      const page = await getPage(jlAdapter.searchUrl(q), tried, "jl:search");
       if (!page?.html) continue;
 
       const found = [
         ...links(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h)),
         ...urlsInSource(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h)),
       ];
-      const candidates = [...new Set(found.map(canonicalJlUrl))].slice(0, 8);
-      tried.push({ step: "jl:search:links", ok: candidates.length > 0, found: candidates.length });
-
-      const ranked = candidates
-        .map((url) => ({ url, name: slugName(url), score: matchScore(slugName(url), title) }))
-        .sort((a, b) => b.score - a.score);
-
-      if (ranked.length && (!bestSeen || ranked[0].score > bestSeen.score)) bestSeen = ranked[0];
-
-      let fetches = 0;
-      for (const cand of ranked) {
-        if (cand.score < minScore || fetches >= maxPageFetches) break;
-        fetches += 1;
-        const product = await readProductPage(cand.url, tried);
-        if (product) {
-          return done(
-            {
-              url: product.url,
-              name: product.name || cand.name,
-              image: product.image,
-              price: product.price,
-              score: cand.score,
-            },
-            tried,
-            "jl:product-page"
-          );
-        }
+      let added = 0;
+      for (const href of found) {
+        const url = canonicalJlUrl(href);
+        if (seen.has(url)) continue;
+        seen.add(url);
+        candidates.push({ url, slugScore: matchScore(slugName(url), title) });
+        added += 1;
       }
+      tried.push({ step: "jl:search:links", ok: added > 0, found: added });
+
+      /* A strong slug match means the search term was good enough;
+         no need to try looser variants and collect noise. */
+      if (candidates.some((c) => c.slugScore >= confident)) break;
     }
 
+    if (!candidates.length) return { ok: false, reason: "no candidates", tried };
+
+    candidates.sort((a, b) => b.slugScore - a.slugScore);
+
+    let best = null;
+    let fetches = 0;
+    for (const cand of candidates) {
+      if (fetches >= maxPageFetches) break;
+      /* Slug scores run low even for right answers, so open anything
+         not obviously wrong rather than pre-filtering on minScore. */
+      if (cand.slugScore < 0.25 && best) break;
+      fetches += 1;
+
+      const product = await readProductPage(cand.url, tried);
+      if (!product) continue;
+
+      const score = matchScore(product.name || slugName(cand.url), title);
+      tried.push({ step: "jl:score", url: cand.url, ok: score >= minScore, score: Number(score.toFixed(2)), name: product.name });
+
+      if (!best || score > best.score) best = { ...product, score };
+      if (score >= confident) break;
+    }
+
+    if (best && best.score >= minScore) {
+      return done({ url: best.url, name: best.name, image: best.image, price: best.price, score: best.score }, tried, "jl:product-page");
+    }
     return {
       ok: false,
-      reason: bestSeen ? `best match scored ${bestSeen.score.toFixed(2)}` : "no candidates",
+      reason: best
+        ? `best match "${best.name}" scored ${best.score.toFixed(2)}, below ${minScore}`
+        : "no candidate page could be read",
       tried,
+      near: best || null,
     };
   },
 };
