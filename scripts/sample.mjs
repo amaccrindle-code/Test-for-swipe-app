@@ -17,7 +17,7 @@
    ──────────────────────────────────────────────────────────── */
 
 import { ALL_OPTIONS } from "../src/data/items.js";
-import { adapterFor } from "./lib/retailers.js";
+import { resolveAcrossRetailers } from "./lib/resolve.js";
 import { setRateLimit } from "./lib/net.js";
 import { closeBrowser } from "./lib/browser.js";
 
@@ -53,7 +53,7 @@ const results = [];
 for (const [index, option] of sample.entries()) {
   let found = null;
   try {
-    found = await adapterFor(option.retailer).find(option.title, { extraQueries: [option.itemName] });
+    found = await resolveAcrossRetailers(option, { extraQueries: [option.itemName] });
   } catch (err) {
     found = { ok: false, reason: err.message };
   }
@@ -67,7 +67,8 @@ for (const [index, option] of sample.entries()) {
 
   console.log(
     `${String(index + 1).padStart(3)}. ${mark} ${String(score).padStart(4)}  ${option.retailer.padEnd(11)} ` +
-      `${truncate(option.title, 42).padEnd(42)} → ${truncate(resolved, 52)} ${price}`
+      `${truncate(option.title, 40).padEnd(40)} → ${truncate(resolved, 44)} ${price}` +
+      (found.ok && found.switchedRetailer ? `  [${found.retailer}]` : "")
   );
 }
 

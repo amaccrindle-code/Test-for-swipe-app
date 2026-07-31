@@ -27,7 +27,7 @@ import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ALL_OPTIONS } from "../src/data/items.js";
-import { adapterFor } from "./lib/retailers.js";
+import { resolveAcrossRetailers } from "./lib/resolve.js";
 import { setRateLimit, fetchBuffer } from "./lib/net.js";
 import { extractProduct } from "./lib/parse.js";
 import { closeBrowser } from "./lib/browser.js";
@@ -184,10 +184,10 @@ async function resolveOption(option) {
     };
   }
 
-  const found = await adapterFor(option.retailer).find(option.title, { extraQueries: [option.itemName] });
+  const found = await resolveAcrossRetailers(option, { extraQueries: [option.itemName] });
   if (!found.ok) {
     const err = new Error(found.reason);
-    err.tried = found.tried;
+    err.tried = found.attempts;
     throw err;
   }
   if (!found.image) {
@@ -244,7 +244,8 @@ for (const [index, option] of work.entries()) {
       sourceUrl: found.url,
       price: found.price ?? null,
       name: found.name || option.title,
-      retailer: option.retailer,
+      retailer: found.retailer || option.retailer,
+      switchedRetailer: Boolean(found.switchedRetailer),
       remoteImage: found.image,
       strategy: found.strategy,
       match: found.score == null ? null : Number(found.score.toFixed(2)),
@@ -260,8 +261,9 @@ for (const [index, option] of work.entries()) {
 
     const price = found.price != null ? `£${found.price}` : "no price";
     const mark = { exact: "✓", close: "~", substitute: "≈" }[found.quality] || "✓";
-    const note = found.quality === "exact" ? "" : `  ${found.quality}: ${truncate(found.name, 40)}`;
-    console.log(`${label}  ${mark} ${shortTitle}  →  ${price}${note}`);
+    const shop = found.switchedRetailer ? `  [${found.retailer}]` : "";
+    const note = found.quality === "exact" ? "" : `  ${found.quality}: ${truncate(found.name, 36)}`;
+    console.log(`${label}  ${mark} ${shortTitle}  →  ${price}${shop}${note}`);
   } catch (err) {
     failures.push({ option, reason: err.message, tried: err.tried });
 
@@ -282,6 +284,12 @@ console.log(`  resolved    ${resolved}`);
 console.log(`  failed      ${failures.length}`);
 console.log(`  skipped     ${skipped.length}  (already in products.json)`);
 console.log(`  ${totalResolved}/${ALL_OPTIONS.length} of all options now have data`);
+
+const moved = Object.values(products).filter((p) => p.switchedRetailer);
+if (moved.length) {
+  const shops = moved.reduce((acc, p) => ({ ...acc, [p.retailer]: (acc[p.retailer] || 0) + 1 }), {});
+  console.log(`  ${moved.length} sourced from a different shop than the list named: ${JSON.stringify(shops)}`);
+}
 
 if (failures.length) {
   const byRetailer = failures.reduce((acc, f) => {

@@ -16,6 +16,7 @@ import React, { useMemo, useState } from "react";
 
 import { ITEMS, ALL_OPTIONS, searchUrl } from "./data/items.js";
 import { PRODUCTS } from "./data/products.js";
+import { RETAILER_NAMES } from "./data/retailers.js";
 import overrides from "./data/overrides.json";
 import { T, DISPLAY, BODY, MONO, money } from "./theme.js";
 
@@ -67,7 +68,7 @@ export default function Review() {
 
   const visible = rows.filter((r) => {
     if (filter !== "all" && r.status !== filter) return false;
-    if (retailer !== "all" && r.retailer !== retailer) return false;
+    if (retailer !== "all" && (r.product?.retailer || r.retailer) !== retailer) return false;
     if (query) {
       const hay = `${r.itemName} ${r.title} ${r.product?.name || ""} ${r.room}`.toLowerCase();
       if (!hay.includes(query.toLowerCase())) return false;
@@ -128,7 +129,7 @@ export default function Review() {
             </Chip>
           ))}
           <span style={{ width: 12 }} />
-          {["all", "IKEA", "John Lewis"].map((r) => (
+          {["all", ...RETAILER_NAMES].map((r) => (
             <Chip key={r} active={retailer === r} onClick={() => setRetailer(r)}>
               {r === "all" ? "Both shops" : r}
             </Chip>
@@ -274,6 +275,11 @@ function Row({ row, draft, onDraft }) {
           <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".14em", color: meta.colour }}>{meta.label.toUpperCase()}</span>
           {product?.match != null && (
             <span style={{ fontFamily: MONO, fontSize: 9.5, color: T.inkFaint }}>match {product.match.toFixed(2)}</span>
+          )}
+          {product?.switchedRetailer && (
+            <span style={{ fontFamily: MONO, fontSize: 9.5, color: T.olive, background: T.oliveWash, padding: "2px 5px", borderRadius: 2 }}>
+              {product.retailer}
+            </span>
           )}
           {product?.imageIsRemote && (
             <span style={{ fontFamily: MONO, fontSize: 9.5, color: T.inkFaint }} title="Download failed; loading from the retailer's server">

@@ -274,7 +274,8 @@ export default function SwipeKitOut() {
   /* ── Done ── */
   if (phase === "done") {
     const byRetailer = bought.reduce((acc, b) => {
-      (acc[b.opt.retailer] = acc[b.opt.retailer] || []).push(b);
+      const shop = b.product?.retailer || b.opt.retailer;
+      (acc[shop] = acc[shop] || []).push(b);
       return acc;
     }, {});
     const haveList = CATALOGUE.filter((x) => choices[x.id] && choices[x.id].type === "have");
@@ -325,7 +326,7 @@ export default function SwipeKitOut() {
                   return (
                     <a
                       key={b.item.id}
-                      href={p?.sourceUrl || searchUrl(b.opt.retailer, b.opt.title)}
+                      href={p?.sourceUrl || searchUrl(p?.retailer || b.opt.retailer, b.opt.title)}
                       target="_blank"
                       rel="noreferrer"
                       style={{ display: "flex", gap: 12, alignItems: "center", textDecoration: "none", padding: "9px 0", borderBottom: `1px dotted ${T.rule}` }}
@@ -460,7 +461,7 @@ export default function SwipeKitOut() {
           <div style={{ padding: "14px 16px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
               <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".16em", color: opt.tier === "Splurge" ? T.brick : T.olive }}>
-                {opt.tier.toUpperCase()} · {opt.retailer.toUpperCase()}
+                {opt.tier.toUpperCase()} · {(product?.retailer || opt.retailer).toUpperCase()}
               </span>
               <span style={{ fontFamily: MONO, fontSize: 15, color: T.ink, whiteSpace: "nowrap" }}>
                 {money(priceOf(product, opt))}
@@ -478,7 +479,7 @@ export default function SwipeKitOut() {
               rel="noreferrer"
               style={{ display: "inline-block", marginTop: 11, fontFamily: MONO, fontSize: 10.5, letterSpacing: ".1em", color: T.olive, textDecoration: "none" }}
             >
-              {product?.sourceUrl ? "OPEN AT " : "SEARCH "}{opt.retailer.toUpperCase()} ↗
+              {product?.sourceUrl ? "OPEN AT " : "SEARCH "}{(product?.retailer || opt.retailer).toUpperCase()} ↗
             </a>
           </div>
         </div>

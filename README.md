@@ -119,6 +119,14 @@ word overlap alone misses:
 - **Size.** 45L against 50L, or 16 piece against 24 piece, is the wrong
   variant even when every other word agrees. Units are normalised first, so
   `40 l`, `40L` and `40 litres` compare as the same size.
+- **Head noun.** The last meaningful word or two is what the thing *is* —
+  bin, fryer, lamp. A candidate missing it is not a variant, it is a
+  different kind of object. Without this a set of towels stood in for a
+  sensor bin and a steam iron for an air fryer, both scoring on shared
+  adjectives alone.
+
+Anything scoring below `MINIMUM` (0.12) is discarded rather than offered as a
+substitute. Inexact is fine; unrelated is not.
 
 The scraper opens the top few candidates and keeps the **best-scoring resolved
 product** rather than the first one over a threshold — search pages return
@@ -199,6 +207,26 @@ out fields the scraper got right.
 
 **`overrides.json` is only ever read by the scraper, never written to**, so
 corrections survive every re-scrape.
+
+## Shopping across several shops
+
+Each option in `items.js` names a retailer, but that is a preference rather
+than a constraint. If the named shop has nothing good — not stocked, or only a
+poor stand-in — the scraper tries the others and keeps the best result across
+all of them. A better product from Argos beats a worse one from John Lewis.
+
+It stops as soon as it finds an `exact` match, so a well-named product still
+costs one shop's worth of requests. Options sourced elsewhere are marked, and
+the card, the receipt and the review filters all show the shop that actually
+supplied the product.
+
+Configured shops: **IKEA, John Lewis, Argos, Dunelm, Amazon**.
+
+Amazon is deliberately excluded from automatic fallback (`fallback: false` in
+`retailers.js`). It detects and blocks automated requests aggressively and its
+terms disallow scraping, so the scraper will not reach for it on its own — it
+is only used if an option names it directly, and will likely need the
+Playwright rung even then.
 
 ## Adding a retailer
 

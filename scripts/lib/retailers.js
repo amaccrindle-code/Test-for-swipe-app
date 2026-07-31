@@ -33,6 +33,12 @@ export const JL = "John Lewis";
 
 export const QUALITY = { exact: 0.7, close: 0.55 };
 
+/* Below this a candidate shares essentially nothing with what was asked
+   for, and calling it a substitute is not honesty, it is noise. Set low
+   on purpose: its job is to require *some* real overlap, not to judge
+   quality — the bands do that. */
+export const MINIMUM = 0.12;
+
 export function bandFor(score) {
   if (score >= QUALITY.exact) return "exact";
   if (score >= QUALITY.close) return "close";
@@ -115,6 +121,17 @@ export function matchScore(candidateName, wantedTitle, { retailer } = {}) {
   const gotSizes = sizes(gotList);
   if (wantSizes.length && gotSizes.length && !wantSizes.some((s) => gotSizes.includes(s))) score *= 0.6;
 
+  /* The head noun is what the thing *is* — bin, fryer, lamp, towels.
+     Everything before it is brand and qualifier. A candidate missing it
+     is not a variant or a substitute, it is a different kind of object,
+     which is how a set of towels came to stand in for a sensor bin and
+     a steam iron for an air fryer. Both scored on shared adjectives.
+
+     Checked against the last few tokens rather than only the final one,
+     since "air fryer" and "pedal bin" put the noun second-to-last. */
+  const wantNouns = want.filter((t) => !SIZE_RE.test(t)).slice(-2);
+  if (wantNouns.length && !wantNouns.some((t) => got.has(t))) score *= 0.25;
+
   return score;
 }
 
@@ -162,9 +179,10 @@ export function queryVariants(title, retailer, extra = []) {
       .join(" ")
   );
   /* Whatever the caller can add — in practice the item's own
-     description ("Kitchen and recycling bins"), which describes the
-     category rather than a product and is the best chance of finding
-     something when the named product does not exist at all. */
+     description ("Kitchen and recycling bins"). It describes a category
+     rather than a product, so a search engine answers it with promo
+     tiles and bestsellers. Useful as a last resort, dangerous earlier,
+     which is why it sits at the end and why MINIMUM exists. */
   for (const q of extra) push(q);
   return out;
 }
@@ -315,9 +333,15 @@ function createAdapter(config) {
 
       if (!best) return { ok: false, reason: "found candidates but no page yielded an image", tried };
 
-      /* Deliberately no threshold. A real photo and a real price for a
-         near-enough product is the outcome we want; the quality band
-         and the review page carry the honesty. */
+      /* Inexact is fine and expected — unrelated is not. */
+      if (best.score < MINIMUM) {
+        return {
+          ok: false,
+          reason: `nothing relevant: best was "${best.name}" at ${best.score.toFixed(2)}`,
+          tried,
+          near: best,
+        };
+      }
       return result(best, tried, `${config.name}:product-page`);
     },
   };
@@ -373,7 +397,7 @@ function createIkeaAdapter(config) {
         }
       }
 
-      if (best?.image) return result(best, tried, "ikea:api");
+      if (best?.image && best.score >= MINIMUM) return result(best, tried, "ikea:api");
 
       /* No usable API result: fall back to the ordinary search-page path. */
       const fallback = await generic.find(title, opts);
