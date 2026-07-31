@@ -267,6 +267,9 @@ src/
     products.json      written by the scraper. Do not hand-edit
     overrides.json     your corrections. The scraper never writes here
     products.js        merges the two for the app
+  lib/
+    xlsx.js            writes a real .xlsx with no spreadsheet library
+    basketSheet.js     lays the basket out as rows and totals
 scripts/
   fetch-products.mjs   the scraper
   probe.mjs            the one-product-per-retailer spike
@@ -275,7 +278,25 @@ scripts/
 public/products/       cached images, gitignored
 ```
 
-Choices persist to `localStorage` under `flatswipe:v1`.
+Choices persist to `localStorage` under `flatswipe:v2` as you swipe — there is
+nothing to press to save them.
+
+## Getting the basket out
+
+The finish screen has **Save as a spreadsheet**, which downloads a real
+`.xlsx`: one row per thing to buy with room, product name, shop, price,
+whether that price was scraped or estimated, and a clickable link. Rows are
+grouped by shop with a subtotal each and a grand total at the bottom.
+
+The totals are live `=SUM()` formulas rather than baked numbers, so editing a
+price in Excel updates them.
+
+The file is written by hand in `src/lib/xlsx.js` — an xlsx is a zip of XML
+parts, so the only dependency is `fflate` for the zipping. That keeps the
+bundle small and avoids the known vulnerabilities in the popular spreadsheet
+libraries.
+
+There is also **Copy the list as text** for pasting into a message.
 
 ## Notes
 

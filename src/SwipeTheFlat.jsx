@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { ITEMS, ALREADY, searchUrl } from "./data/items.js";
 import { productFor, SCRAPE_STATS } from "./data/products.js";
 import { T, DISPLAY, BODY, MONO, money } from "./theme.js";
+import { downloadBasket } from "./lib/basketSheet.js";
 
 const STORAGE_KEY = "flatswipe:v2";
 
@@ -42,6 +43,7 @@ export default function SwipeKitOut() {
   const [drag, setDrag] = useState(0);
   const [flying, setFlying] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [saved2, setSaved2] = useState(false);
   const [reduced, setReduced] = useState(false);
   const startX = useRef(null);
   const saveTimer = useRef(null);
@@ -356,7 +358,19 @@ export default function SwipeKitOut() {
             )}
 
             <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 9 }}>
-              <BigButton onClick={copyText}>{copied ? "Copied" : "Copy the list"}</BigButton>
+              <BigButton
+                onClick={() => {
+                  downloadBasket(bought);
+                  setSaved2(true);
+                  setTimeout(() => setSaved2(false), 2400);
+                }}
+              >
+                {saved2 ? "Saved to your downloads" : "Save as a spreadsheet"}
+              </BigButton>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".08em", color: T.inkFaint, textAlign: "center", lineHeight: 1.6 }}>
+                EXCEL FILE · NAME, SHOP, PRICE AND LINK · TOTALS PER SHOP
+              </div>
+              <BigButton ghost onClick={copyText}>{copied ? "Copied" : "Copy the list as text"}</BigButton>
               <BigButton
                 ghost
                 onClick={() => {
