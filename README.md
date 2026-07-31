@@ -22,6 +22,12 @@ npm run scrape         # resolve all 210 options (~10-20 min)
 npm run dev            # http://localhost:5173
 ```
 
+Recent npm versions block packages from running install scripts unless
+approved. `esbuild` and `sharp` both need theirs — esbuild to place its
+platform binary, sharp to check its own — so the approval is committed in
+`package.json` under `allowScripts`. If npm still warns, run
+`npm approve-scripts esbuild sharp` and `npm install` once more.
+
 The app works fine before you scrape — every card falls back to a hand-drawn
 icon and the estimated price, which is enough to make decisions with. Photos
 just make it nicer.
