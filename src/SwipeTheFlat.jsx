@@ -2,10 +2,28 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 
 import { ITEMS, ALREADY, searchUrl } from "./data/items.js";
 import { productFor, SCRAPE_STATS } from "./data/products.js";
-import { D } from "./data/icons.jsx";
 import { T, DISPLAY, BODY, MONO, money } from "./theme.js";
 
-const STORAGE_KEY = "flatswipe:v1";
+const STORAGE_KEY = "flatswipe:v2";
+
+/* Only options the scraper resolved to a real photo make it into the
+   app. A card exists to be judged on a picture and a price, so an
+   option without one is not shown at all rather than falling back to a
+   drawing — and an item where nothing resolved drops out entirely.
+
+   `idx` keeps the original position so products.json, overrides.json
+   and the tier labels all still line up after filtering. */
+const CATALOGUE = ITEMS.map((item) => ({
+  ...item,
+  options: item.options
+    .map((opt, idx) => ({ ...opt, idx, product: productFor(item.id, idx) }))
+    .filter((opt) => opt.product && opt.product.image),
+})).filter((item) => item.options.length > 0);
+
+const DROPPED = {
+  items: ITEMS.length - CATALOGUE.length,
+  options: ITEMS.reduce((n, x) => n + x.options.length, 0) - CATALOGUE.reduce((n, x) => n + x.options.length, 0),
+};
 
 /* The scraped price when the scraper found one, my estimate otherwise.
    In one place so the card, the receipt and the running total agree. */
@@ -60,11 +78,9 @@ export default function SwipeKitOut() {
   const decided = Object.keys(choices).length;
   const bought = useMemo(
     () =>
-      ITEMS.filter((x) => choices[x.id] && choices[x.id].type === "buy").map((x) => {
-        const chosen = choices[x.id].o;
-        const opt = x.options[chosen];
-        const product = productFor(x.id, chosen);
-        return { item: x, opt, product, price: priceOf(product, opt) };
+      CATALOGUE.filter((x) => choices[x.id] && choices[x.id].type === "buy").map((x) => {
+        const opt = x.options[choices[x.id].o] || x.options[0];
+        return { item: x, opt, product: opt.product, price: priceOf(opt.product, opt) };
       }),
     [choices]
   );
@@ -72,7 +88,7 @@ export default function SwipeKitOut() {
 
   const nextItem = useCallback(
     (from) => {
-      if (from + 1 >= ITEMS.length) setPhase("done");
+      if (from + 1 >= CATALOGUE.length) setPhase("done");
       else {
         setI(from + 1);
         setO(0);
@@ -87,9 +103,9 @@ export default function SwipeKitOut() {
       () => {
         setFlying(null);
         setDrag(0);
-        if (o < 2) setO(o + 1);
+        if (o < CATALOGUE[i].options.length - 1) setO(o + 1);
         else {
-          setChoices((c) => (c[ITEMS[i].id] ? c : { ...c, [ITEMS[i].id]: { type: "skip" } }));
+          setChoices((c) => (c[CATALOGUE[i].id] ? c : { ...c, [CATALOGUE[i].id]: { type: "skip" } }));
           nextItem(i);
         }
       },
@@ -103,7 +119,7 @@ export default function SwipeKitOut() {
       () => {
         setFlying(null);
         setDrag(0);
-        setChoices((c) => ({ ...c, [ITEMS[i].id]: { type: "buy", o } }));
+        setChoices((c) => ({ ...c, [CATALOGUE[i].id]: { type: "buy", o } }));
         nextItem(i);
       },
       reduced ? 0 : 200
@@ -111,7 +127,7 @@ export default function SwipeKitOut() {
   }, [i, o, nextItem, reduced]);
 
   const haveIt = useCallback(() => {
-    setChoices((c) => ({ ...c, [ITEMS[i].id]: { type: "have" } }));
+    setChoices((c) => ({ ...c, [CATALOGUE[i].id]: { type: "have" } }));
     setDrag(0);
     nextItem(i);
   }, [i, nextItem]);
@@ -124,7 +140,7 @@ export default function SwipeKitOut() {
       setO(0);
       setChoices((c) => {
         const n = { ...c };
-        delete n[ITEMS[i - 1].id];
+        delete n[CATALOGUE[i - 1].id];
         return n;
       });
     }
@@ -181,23 +197,32 @@ export default function SwipeKitOut() {
             existence
           </h1>
           <p style={{ fontFamily: BODY, fontSize: 16, lineHeight: 1.55, color: T.inkSoft, margin: "18px 0 0" }}>
-            {ITEMS.length} things, three options each, one card at a time. Swipe left to reject and see the next option. Swipe right to put it
-            in the basket.
+            {CATALOGUE.length} things, {CATALOGUE.reduce((n, x) => n + x.options.length, 0)} options between them, one card at a time.
+            Swipe left to see the next option, right to put it in the basket. Every card is a real product with a real photo and a
+            live price — tap the row underneath to compare the options side by side.
           </p>
 
           <div style={{ marginTop: 24, background: T.card, border: `1px solid ${T.rule}`, borderRadius: 5, padding: "14px 16px" }}>
-            <Eyebrow>{SCRAPE_STATS.withPhoto > 0 ? "Where the photos came from" : "No photos yet"}</Eyebrow>
+            <Eyebrow>{CATALOGUE.length ? "Where these came from" : "Nothing scraped yet"}</Eyebrow>
             <p style={{ fontFamily: BODY, fontSize: 13.5, lineHeight: 1.5, color: T.inkSoft, margin: "8px 0 0" }}>
-              {SCRAPE_STATS.withPhoto > 0 ? (
+              {CATALOGUE.length ? (
                 <>
-                  {SCRAPE_STATS.withPhoto} of {ITEMS.length * 3} options have a real product photo, scraped once and cached locally
-                  — nothing is looked up while you swipe. Anything without one shows a drawing, labelled as such, and the card
-                  still links to the shop. A price marked <Est /> is my estimate rather than a scraped one.
+                  Scraped once from IKEA and John Lewis and cached, so nothing is looked up while you swipe. Where the exact product
+                  was not stocked the nearest real one stands in, labelled on the card.
+                  {DROPPED.options > 0 && (
+                    <>
+                      {" "}
+                      {DROPPED.options} option{DROPPED.options === 1 ? "" : "s"} found no photo and{" "}
+                      {DROPPED.options === 1 ? "is" : "are"} left out
+                      {DROPPED.items > 0 && `, dropping ${DROPPED.items} item${DROPPED.items === 1 ? "" : "s"} entirely`}. Re-run{" "}
+                      <code style={{ fontFamily: MONO, fontSize: 12.5 }}>npm run scrape</code> to try them again.
+                    </>
+                  )}
                 </>
               ) : (
                 <>
-                  Run <code style={{ fontFamily: MONO, fontSize: 12.5 }}>npm run scrape</code> to fetch real product photos and
-                  prices. Until then every card shows a drawing and my estimated price, which still works fine for deciding.
+                  Run <code style={{ fontFamily: MONO, fontSize: 12.5 }}>npm run scrape</code> to fetch product photos and prices.
+                  There is nothing to swipe until then.
                 </>
               )}
             </p>
@@ -219,14 +244,14 @@ export default function SwipeKitOut() {
               <BigButton
                 onClick={() => {
                   setChoices(saved.choices);
-                  setI(Math.min(saved.i || 0, ITEMS.length - 1));
+                  setI(Math.min(saved.i || 0, CATALOGUE.length - 1));
                   setO(saved.o || 0);
-                  setPhase(Object.keys(saved.choices).length >= ITEMS.length ? "done" : "swipe");
+                  setPhase(Object.keys(saved.choices).length >= CATALOGUE.length ? "done" : "swipe");
                 }}
               >
                 Carry on
                 <span style={{ fontFamily: MONO, fontSize: 12, opacity: 0.75, marginLeft: 8 }}>
-                  {Object.keys(saved.choices).length}/{ITEMS.length}
+                  {Object.keys(saved.choices).length}/{CATALOGUE.length}
                 </span>
               </BigButton>
             )}
@@ -252,8 +277,8 @@ export default function SwipeKitOut() {
       (acc[b.opt.retailer] = acc[b.opt.retailer] || []).push(b);
       return acc;
     }, {});
-    const haveList = ITEMS.filter((x) => choices[x.id] && choices[x.id].type === "have");
-    const skipList = ITEMS.filter((x) => choices[x.id] && choices[x.id].type === "skip");
+    const haveList = CATALOGUE.filter((x) => choices[x.id] && choices[x.id].type === "have");
+    const skipList = CATALOGUE.filter((x) => choices[x.id] && choices[x.id].type === "skip");
 
     const copyText = () => {
       const lines = [];
@@ -305,7 +330,7 @@ export default function SwipeKitOut() {
                       rel="noreferrer"
                       style={{ display: "flex", gap: 12, alignItems: "center", textDecoration: "none", padding: "9px 0", borderBottom: `1px dotted ${T.rule}` }}
                     >
-                      <Thumb product={p} id={b.item.id} />
+                      <Thumb product={p} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontFamily: BODY, fontSize: 14.5, color: T.ink, fontWeight: 600 }}>{b.item.name}</div>
                         <div style={{ fontFamily: BODY, fontSize: 12.5, color: T.inkSoft, marginTop: 1 }}>{p?.name || b.opt.title}</div>
@@ -350,9 +375,22 @@ export default function SwipeKitOut() {
   }
 
   /* ── Swipe ── */
-  const item = ITEMS[i];
+  if (!CATALOGUE.length)
+    return (
+      <Shell>
+        <div style={{ padding: "80px 24px", maxWidth: 460, margin: "0 auto", textAlign: "center" }}>
+          <Eyebrow center>Nothing to swipe</Eyebrow>
+          <p style={{ fontFamily: BODY, fontSize: 15, lineHeight: 1.55, color: T.inkSoft, marginTop: 14 }}>
+            No option has a product photo yet. Run{" "}
+            <code style={{ fontFamily: MONO, fontSize: 13 }}>npm run scrape</code>, then reload.
+          </p>
+        </div>
+      </Shell>
+    );
+
+  const item = CATALOGUE[i];
   const opt = item.options[o];
-  const product = productFor(item.id, o);
+  const product = opt.product;
   const rot = drag / 22;
   const flyX = flying === "left" ? -520 : flying === "right" ? 520 : drag;
 
@@ -364,7 +402,7 @@ export default function SwipeKitOut() {
             ←
           </button>
           <div style={{ flex: 1, height: 3, background: T.rule, borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${(decided / ITEMS.length) * 100}%`, background: T.olive, transition: reduced ? "none" : "width 220ms ease" }} />
+            <div style={{ height: "100%", width: `${(decided / CATALOGUE.length) * 100}%`, background: T.olive, transition: reduced ? "none" : "width 220ms ease" }} />
           </div>
           <span style={{ fontFamily: MONO, fontSize: 12, background: T.oliveWash, color: T.oliveDeep, padding: "6px 9px", borderRadius: 2 }}>{money(total)}</span>
           <button onClick={() => setPhase("done")} style={{ fontFamily: MONO, fontSize: 12, background: "none", border: "none", color: T.olive, cursor: "pointer" }}>
@@ -377,7 +415,7 @@ export default function SwipeKitOut() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <Eyebrow>{item.room}</Eyebrow>
           <span style={{ fontFamily: MONO, fontSize: 10.5, color: T.inkFaint }}>
-            {String(i + 1).padStart(2, "0")}/{ITEMS.length}
+            {String(i + 1).padStart(2, "0")}/{CATALOGUE.length}
           </span>
         </div>
         <h2 style={{ fontFamily: DISPLAY, fontSize: 27, lineHeight: 1.15, color: T.oliveDeep, margin: "8px 0 0", letterSpacing: "-.01em" }}>{item.name}</h2>
@@ -385,7 +423,7 @@ export default function SwipeKitOut() {
 
         {/* option pips */}
         <div style={{ display: "flex", gap: 5, marginTop: 14 }}>
-          {[0, 1, 2].map((k) => (
+          {item.options.map((_, k) => (
             <div key={k} style={{ flex: 1, height: 3, borderRadius: 2, background: k <= o ? T.olive : T.rule }} />
           ))}
         </div>
@@ -417,7 +455,7 @@ export default function SwipeKitOut() {
           <Stamp show={drag > 55} side="right" label="IN THE BASKET" colour={T.olive} />
           <Stamp show={drag < -55} side="left" label="NEXT OPTION" colour={T.brick} />
 
-          <PhotoPane product={product} id={item.id} />
+          <PhotoPane product={product} />
 
           <div style={{ padding: "14px 16px 16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
@@ -445,6 +483,8 @@ export default function SwipeKitOut() {
           </div>
         </div>
 
+        <OptionStrip item={item} current={o} onPick={(k) => { setDrag(0); setO(k); }} />
+
         {/* controls */}
         <div style={{ display: "flex", gap: 10, marginTop: 16, alignItems: "center" }}>
           <RoundButton onClick={reject} label="✕" colour={T.brick} title="Next option" />
@@ -458,7 +498,8 @@ export default function SwipeKitOut() {
         </div>
 
         <div style={{ fontFamily: MONO, fontSize: 10, color: T.inkFaint, marginTop: 14, letterSpacing: ".08em", textAlign: "center" }}>
-          SWIPE LEFT FOR THE NEXT OPTION · RIGHT TO BUY · {o + 1} OF 3
+          {item.options.length > 1 ? "SWIPE LEFT FOR THE NEXT OPTION · RIGHT TO BUY · " : "ONLY OPTION · "}
+          {o + 1} OF {item.options.length}
         </div>
       </div>
     </Shell>
@@ -468,15 +509,15 @@ export default function SwipeKitOut() {
 /* ────────────────────────────────────────────────────────────
    Bits
    ──────────────────────────────────────────────────────────── */
-function PhotoPane({ product, id }) {
+function PhotoPane({ product }) {
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [product && product.image]);
 
-  const showImg = Boolean(product && product.image) && !broken;
-
   return (
-    <div style={{ height: 250, background: showImg ? "#fff" : T.oliveWash, display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.rule}`, position: "relative" }}>
-      {showImg ? (
+    <div style={{ height: 250, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.rule}`, position: "relative" }}>
+      {broken ? (
+        <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".14em", color: T.inkFaint }}>PHOTO WOULD NOT LOAD</div>
+      ) : (
         <img
           src={product.image}
           alt=""
@@ -484,23 +525,66 @@ function PhotoPane({ product, id }) {
           draggable={false}
           style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }}
         />
-      ) : (
-        <div style={{ textAlign: "center", padding: "0 16px" }}>
-          <Sketch id={id} size={78} color={T.oliveDeep} />
-          <div style={{ fontFamily: MONO, fontSize: 9, letterSpacing: ".14em", color: T.inkFaint, marginTop: 8 }}>
-            {broken ? "PHOTO MISSING FROM DISK · RE-RUN THE SCRAPER" : "DRAWING · NO PHOTO SCRAPED"}
-          </div>
-        </div>
       )}
     </div>
   );
 }
 
-function Thumb({ product, id }) {
+function Thumb({ product }) {
   const [broken, setBroken] = useState(false);
-  if (product && product.image && !broken)
-    return <img src={product.image} alt="" onError={() => setBroken(true)} style={{ width: 34, height: 34, objectFit: "contain", background: "#fff", borderRadius: 3 }} />;
-  return <Sketch id={id} size={26} color={T.olive} />;
+  if (!product || !product.image || broken)
+    return <div style={{ width: 34, height: 34, background: T.oliveWash, borderRadius: 3, flexShrink: 0 }} />;
+  return (
+    <img
+      src={product.image}
+      alt=""
+      onError={() => setBroken(true)}
+      style={{ width: 34, height: 34, objectFit: "contain", background: "#fff", borderRadius: 3, flexShrink: 0 }}
+    />
+  );
+}
+
+/* All of an item's options at a glance, so the choice can be compared
+   on picture and price rather than remembered across swipes. Tapping
+   one jumps straight to it; swiping still walks them in order. */
+function OptionStrip({ item, current, onPick }) {
+  if (item.options.length < 2) return null;
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+      {item.options.map((opt, k) => {
+        const active = k === current;
+        return (
+          <button
+            key={opt.idx}
+            onClick={() => onPick(k)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 5,
+              padding: "8px 6px",
+              cursor: "pointer",
+              background: active ? T.oliveWash : T.card,
+              border: `1px solid ${active ? T.olive : T.rule}`,
+              borderRadius: 4,
+            }}
+          >
+            <img
+              src={opt.product.image}
+              alt=""
+              style={{ width: "100%", height: 46, objectFit: "contain", background: "#fff", borderRadius: 2 }}
+            />
+            <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: ".1em", color: active ? T.oliveDeep : T.inkFaint }}>
+              {opt.tier.toUpperCase()}
+            </span>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: T.ink }}>{money(priceOf(opt.product, opt))}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /* When the scraper could not find the exact product it resolves the
@@ -587,14 +671,6 @@ function RoundButton({ onClick, label, colour, title }) {
     >
       {label}
     </button>
-  );
-}
-
-function Sketch({ id, size = 48, color = T.olive, stroke = 1.5 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {D[id] || <circle cx="24" cy="24" r="14" />}
-    </svg>
   );
 }
 

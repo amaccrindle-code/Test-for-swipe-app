@@ -22,9 +22,12 @@ function merge(base = {}, over = {}) {
   for (const [k, v] of Object.entries(over)) {
     if (v !== null && v !== undefined && v !== "") out[k] = v;
   }
-  /* The locally cached file is preferred over any remote URL: it is
-     resized, always reachable, and does not hotlink the retailer. */
-  out.image = out.localImage || out.image || null;
+  /* Prefer the locally cached file: resized, always reachable, offline.
+     But fall back to the retailer's own URL when the download failed —
+     a browser loading it directly usually succeeds where a Node fetch
+     got a 403, and a real photo from a remote URL beats no photo. */
+  out.image = out.localImage || out.remoteImage || out.image || null;
+  out.imageIsRemote = !out.localImage && Boolean(out.remoteImage || out.image);
   out.overridden = Object.keys(over).length > 0;
   return out;
 }
@@ -47,6 +50,8 @@ export const HAS_SCRAPED_DATA = keys.size > 0;
 export const SCRAPE_STATS = {
   resolved: keys.size,
   withPhoto: [...keys].filter((k) => PRODUCTS[k].image).length,
+  cachedLocally: [...keys].filter((k) => PRODUCTS[k].localImage).length,
+  hotlinked: [...keys].filter((k) => PRODUCTS[k].imageIsRemote).length,
   withPrice: [...keys].filter((k) => PRODUCTS[k].price != null).length,
   overridden: [...keys].filter((k) => PRODUCTS[k].overridden).length,
 };

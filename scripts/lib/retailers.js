@@ -129,7 +129,7 @@ export function ikeaArticleName(title) {
    The later variants matter more than they used to: when the exact
    product does not exist, a broader query is what surfaces the category
    so a substitute can be found at all. */
-export function queryVariants(title, retailer) {
+export function queryVariants(title, retailer, extra = []) {
   const out = [];
   const push = (q) => {
     const clean = String(q || "").replace(/\s+/g, " ").trim();
@@ -141,6 +141,7 @@ export function queryVariants(title, retailer) {
     if (article) push(article);
     push(title);
     if (article) push(title.slice(article.length));
+    for (const q of extra) push(q);
     return out;
   }
 
@@ -160,6 +161,11 @@ export function queryVariants(title, retailer) {
       .slice(-3)
       .join(" ")
   );
+  /* Whatever the caller can add — in practice the item's own
+     description ("Kitchen and recycling bins"), which describes the
+     category rather than a product and is the best chance of finding
+     something when the named product does not exist at all. */
+  for (const q of extra) push(q);
   return out;
 }
 
@@ -244,12 +250,12 @@ function createAdapter(config) {
     name: config.name,
     searchUrl: config.searchUrl,
 
-    async find(title, { confident = 0.85, maxPageFetches = 3 } = {}) {
+    async find(title, { confident = 0.85, maxPageFetches = 3, extraQueries = [] } = {}) {
       const tried = [];
       const seen = new Set();
       const candidates = [];
 
-      for (const query of queryVariants(title, config.name)) {
+      for (const query of queryVariants(title, config.name, extraQueries)) {
         const page = await getPage(config.searchUrl(query), tried, "search");
         if (!page?.html) continue;
 
@@ -349,7 +355,7 @@ function createIkeaAdapter(config) {
       /* The JSON endpoint the website itself calls returns name, image
          and price together — one request instead of two, and the names
          are cleaner than any slug. */
-      for (const query of queryVariants(title, IKEA)) {
+      for (const query of queryVariants(title, IKEA, opts.extraQueries || [])) {
         const api = `https://sik.search.blue.cdtapps.com/gb/en/search-result-page?q=${encodeURIComponent(
           query
         )}&size=12&types=PRODUCT`;

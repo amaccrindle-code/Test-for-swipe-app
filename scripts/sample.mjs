@@ -53,7 +53,7 @@ const results = [];
 for (const [index, option] of sample.entries()) {
   let found = null;
   try {
-    found = await adapterFor(option.retailer).find(option.title);
+    found = await adapterFor(option.retailer).find(option.title, { extraQueries: [option.itemName] });
   } catch (err) {
     found = { ok: false, reason: err.message };
   }

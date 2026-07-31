@@ -8,10 +8,11 @@ Product photos and prices are resolved **once, at build time**, by a scraper
 that writes a local data file and caches the images. The app itself does no
 lookup at runtime.
 
-The point is a card with a real photo and a real price to decide against. An
-exact match is the goal, but a sensible alternative beats a drawing — so the
-scraper never rejects a product for being merely inexact. It resolves the
-nearest real thing and the card says so.
+Every card is a real product with a real photo and a live price. An exact
+match is the goal, but a sensible alternative is a good outcome — the scraper
+resolves the nearest real thing and the card says so. **An option with no
+photo is not shown at all**, and an item where nothing resolved drops out of
+the list entirely.
 
 ## Running it
 
@@ -28,9 +29,8 @@ platform binary, sharp to check its own — so the approval is committed in
 `package.json` under `allowScripts`. If npm still warns, run
 `npm approve-scripts esbuild sharp` and `npm install` once more.
 
-The app works fine before you scrape — every card falls back to a hand-drawn
-icon and the estimated price, which is enough to make decisions with. Photos
-just make it nicer.
+There is nothing to swipe until you scrape — the app shows only options that
+resolved to a real photo.
 
 | Command | What it does |
 | --- | --- |
@@ -38,6 +38,7 @@ just make it nicer.
 | `npm run scrape` | Resolve products, cache images, write `products.json` |
 | `npm run scrape:probe` | Resolve one product per retailer and print what parsed |
 | `npm run scrape:sample` | Score a spread of options to measure the real hit rate |
+| `npm run scrape:doctor` | Why are photos missing? Add `-- --fix` to repair them |
 | `npm run scrape:reset` | Throw away `products.json` and start over |
 | `npm run build` | Production build of both pages |
 | `npm test` | Parser and matching tests against fixtures, no network |
@@ -131,10 +132,28 @@ instead:
 | **exact** | ≥ 0.70 | the product as named |
 | **close** | ≥ 0.55 | the product, plus `CLOSEST TO <what you asked for>` |
 | **substitute** | > 0 | the product, plus `STAND-IN FOR <what you asked for>` in red |
-| *(none)* | — | the hand-drawn icon and your estimated price |
+| *(none)* | — | nothing — the option is left out of the app |
 
-So a card almost always has a photo and a live price, and you always know
-whether it is the thing you named. `npm run scrape:sample` reports the mix.
+So every card has a photo and a live price, and you always know whether it is
+the thing you named. `npm run scrape:sample` reports the mix.
+
+### Photos that would not download
+
+Retailer CDNs often refuse server-side fetches with a `403` while serving the
+same image happily to a browser. When a download fails the scraper keeps the
+retailer's own URL, and the app falls back to it — so the photo still appears,
+it just loads from their server instead of from disk.
+
+`npm run scrape:doctor` reports how many are in that state and re-tries a few
+to show the real HTTP error. `npm run scrape:doctor -- --fix` retries every one
+and caches whatever now works, without redoing any searching.
+
+### Comparing the options
+
+Each card carries a strip of every option for that item — photo, tier and
+price — so the three can be compared side by side rather than remembered
+across swipes. Tapping one jumps straight to it; swiping left still walks them
+in order.
 
 It is **resumable**: anything already in `products.json` with its image still
 on disk is skipped, so you can stop it and rerun without redoing work. It

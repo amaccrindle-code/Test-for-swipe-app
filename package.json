@@ -11,7 +11,8 @@
     "scrape": "node scripts/fetch-products.mjs",
     "scrape:probe": "node scripts/probe.mjs",
     "scrape:sample": "node scripts/sample.mjs",
-    "scrape:reset": "node scripts/fetch-products.mjs --reset"
+    "scrape:reset": "node scripts/fetch-products.mjs --reset",
+    "scrape:doctor": "node scripts/doctor.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

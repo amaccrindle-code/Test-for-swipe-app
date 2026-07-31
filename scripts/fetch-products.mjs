@@ -184,7 +184,7 @@ async function resolveOption(option) {
     };
   }
 
-  const found = await adapterFor(option.retailer).find(option.title);
+  const found = await adapterFor(option.retailer).find(option.title, { extraQueries: [option.itemName] });
   if (!found.ok) {
     const err = new Error(found.reason);
     err.tried = found.tried;

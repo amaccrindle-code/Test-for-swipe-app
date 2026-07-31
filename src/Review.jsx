@@ -17,7 +17,6 @@ import React, { useMemo, useState } from "react";
 import { ITEMS, ALL_OPTIONS, searchUrl } from "./data/items.js";
 import { PRODUCTS } from "./data/products.js";
 import overrides from "./data/overrides.json";
-import { D } from "./data/icons.jsx";
 import { T, DISPLAY, BODY, MONO, money } from "./theme.js";
 
 /* Same weak-match threshold the scraper warns at. */
@@ -256,7 +255,7 @@ function Row({ row, draft, onDraft }) {
         marginBottom: 9,
       }}
     >
-      <Preview product={product} id={row.itemId} />
+      <Preview product={product} />
 
       {/* Wanted */}
       <div style={{ minWidth: 0 }}>
@@ -275,6 +274,11 @@ function Row({ row, draft, onDraft }) {
           <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".14em", color: meta.colour }}>{meta.label.toUpperCase()}</span>
           {product?.match != null && (
             <span style={{ fontFamily: MONO, fontSize: 9.5, color: T.inkFaint }}>match {product.match.toFixed(2)}</span>
+          )}
+          {product?.imageIsRemote && (
+            <span style={{ fontFamily: MONO, fontSize: 9.5, color: T.inkFaint }} title="Download failed; loading from the retailer's server">
+              not cached
+            </span>
           )}
           {product?.overridden && (
             <span style={{ fontFamily: MONO, fontSize: 9.5, color: T.olive, background: T.oliveWash, padding: "2px 5px", borderRadius: 2 }}>
@@ -325,7 +329,7 @@ function Row({ row, draft, onDraft }) {
   );
 }
 
-function Preview({ product, id }) {
+function Preview({ product }) {
   const [broken, setBroken] = useState(false);
   const showImg = Boolean(product?.image) && !broken;
 
@@ -341,6 +345,7 @@ function Preview({ product, id }) {
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
+        textAlign: "center",
       }}
     >
       {showImg ? (
@@ -351,9 +356,9 @@ function Preview({ product, id }) {
           style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
         />
       ) : (
-        <svg width={44} height={44} viewBox="0 0 48 48" fill="none" stroke={T.olive} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          {D[id] || <circle cx="24" cy="24" r="14" />}
-        </svg>
+        <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: ".1em", color: T.inkFaint, padding: 6 }}>
+          {broken ? "WOULD NOT LOAD" : "NO PHOTO"}
+        </span>
       )}
     </div>
   );
