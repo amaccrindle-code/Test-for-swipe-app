@@ -21,7 +21,7 @@ import {
   urlsInSource,
   decodeEntities,
 } from "./lib/parse.js";
-import { matchScore, ikeaArticleName, queryVariants, bandFor, IKEA, JL } from "./lib/retailers.js";
+import { matchScore, ikeaArticleName, queryVariants, bandFor, pricePlausibility, MINIMUM, IKEA, JL } from "./lib/retailers.js";
 
 let passed = 0;
 const failures = [];
@@ -250,6 +250,38 @@ check("verbose John Lewis title still exact", bandFor(tv), "exact");
    score to "close" but must never manufacture an exact match. */
 const floorOnly = matchScore("KNODD Something Entirely Different", "KNODD bin with lid 40L", { retailer: IKEA });
 ok("article name is a floor, not a free pass", bandFor(floorOnly) !== "exact", `${floorOnly.toFixed(2)} → ${bandFor(floorOnly)}`);
+
+/* ── Category and price guards, from the second live sample ── */
+
+/* Scoring on shared adjectives alone let a set of towels stand in for a
+   sensor bin and a steam iron for an air fryer. The head noun is what
+   the thing *is*, and a candidate missing it is a different object. */
+const towels = matchScore("John Lewis Egyptian Cotton Towels, Dark Steel", "ANYDAY sensor bin 45L", { retailer: JL });
+ok("towels are not a bin", towels < MINIMUM, `scored ${towels.toFixed(2)}`);
+const iron = matchScore("Tefal Ultragliss Steam Iron, Blue", "Ninja Foodi dual zone air fryer", { retailer: JL });
+ok("an iron is not an air fryer", iron < MINIMUM, `scored ${iron.toFixed(2)}`);
+
+/* Same-category substitutes must survive the head-noun rule. */
+const ekoBin = matchScore("EKO Ecofly Pedal Bin, Stainless Steel, 45L", "ANYDAY sensor bin 45L", { retailer: JL });
+ok("a different bin is still a bin", ekoBin >= MINIMUM, `scored ${ekoBin.toFixed(2)}`);
+
+/* Price separates a model from its designer edition when nearly every
+   word matches: Smeg TSF01 at £170 against the D&G one at £599. */
+check("many times over estimate is demoted", pricePlausibility(900, 170), 0.4);
+check("a few times over is nudged", pricePlausibility(599, 170), 0.7);
+check("modestly over is untouched", pricePlausibility(400, 170), 1);
+check("in the right bracket is untouched", pricePlausibility(170, 170), 1);
+check("suspiciously cheap is demoted too", pricePlausibility(20, 170), 0.4);
+check("no estimate means no opinion", pricePlausibility(599, null), 1);
+check("no price means no opinion", pricePlausibility(null, 170), 1);
+
+const dg = matchScore("Smeg Dolce & Gabbana TSF01DGBUK Mediterraneo Toaster", "Smeg 50s Retro 2 slice toaster TSF01", { retailer: JL }) * pricePlausibility(599, 170);
+const plain = matchScore("Smeg 50s Retro TSF01 2-Slice Toaster, Cream", "Smeg 50s Retro 2 slice toaster TSF01", { retailer: JL }) * pricePlausibility(170, 170);
+ok("the right Smeg decisively outranks the designer one", plain > dg * 3, `${plain.toFixed(2)} vs ${dg.toFixed(2)}`);
+
+/* A genuinely good match a bit over estimate must not be punished. */
+const pans = matchScore("John Lewis Stainless Steel Saucepans & Frying Pan Set, 5 Piece", "John Lewis ANYDAY stainless steel pan set 5 piece", { retailer: JL }) * pricePlausibility(125, 90);
+check("a fair price keeps its band", bandFor(pans), "close");
 
 /* ── Report ───────────────────────────────────────────────── */
 

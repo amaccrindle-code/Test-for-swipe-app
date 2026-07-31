@@ -35,6 +35,7 @@ resolved to a real photo.
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | The app on `/`, the scrape review on `/review.html` |
+| `npm run dev:mobile` | Same, but reachable from your phone on the same wifi |
 | `npm run scrape` | Resolve products, cache images, write `products.json` |
 | `npm run scrape:probe` | Resolve one product per retailer and print what parsed |
 | `npm run scrape:sample` | Score a spread of options to measure the real hit rate |
@@ -124,6 +125,11 @@ word overlap alone misses:
   different kind of object. Without this a set of towels stood in for a
   sensor bin and a steam iron for an air fryer, both scoring on shared
   adjectives alone.
+- **Price.** An order-of-magnitude gap from the estimate in `items.js` is
+  strong evidence the wrong variant was picked — "Smeg 50s Retro TSF01" and
+  "Smeg Dolce & Gabbana TSF01DGBUK" share a model number and nearly every
+  word, but one is £170 and the other £599. This only demotes, so a bad
+  estimate cannot block a good match when there is nothing better.
 
 Anything scoring below `MINIMUM` (0.12) is discarded rather than offered as a
 substitute. Inexact is fine; unrelated is not.
@@ -280,6 +286,31 @@ public/products/       cached images, gitignored
 
 Choices persist to `localStorage` under `flatswipe:v2` as you swipe — there is
 nothing to press to save them.
+
+## Using it on a phone
+
+```bash
+npm run dev:mobile
+```
+
+Vite prints a **Network** address alongside the local one, something like
+`http://192.168.1.42:5173/`. Type that into your phone's browser while it is
+on the same wifi as the PC. Add it to the home screen and it behaves like an
+app.
+
+Two things to know:
+
+- The PC has to stay awake with the command running — close the terminal and
+  the phone loses it.
+- Choices live in `localStorage`, which is **per device**. Swiping on the
+  phone does not update the basket on the PC. Do a run in one place and
+  export the spreadsheet at the end.
+
+Windows will likely pop up a firewall prompt the first time. Allow it on
+private networks; there is no need to allow public ones.
+
+For access without the PC running, `npm run build` produces a plain static
+site in `dist/` that any host will serve.
 
 ## Getting the basket out
 

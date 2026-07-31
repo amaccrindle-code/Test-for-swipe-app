@@ -135,6 +135,27 @@ export function matchScore(candidateName, wantedTitle, { retailer } = {}) {
   return score;
 }
 
+/* Price is a sanity check on identity, not a filter on taste.
+
+   "Smeg 50s Retro toaster TSF01" and "Smeg Dolce & Gabbana TSF01DGBUK
+   Mediterraneo" share a model number and almost every word, but one is
+   £170 and the other £599 — a designer edition, not the thing that was
+   asked for. Same for a £695 illuminated cabinet standing in for a
+   bathroom shelf unit.
+
+   The estimates in items.js are rough but honest, so an order-of-
+   magnitude gap is strong evidence the wrong variant was picked. This
+   only demotes: a badly wrong estimate cannot stop a good match winning
+   when there is nothing better, it just stops the £599 one outranking
+   the £170 one. */
+export function pricePlausibility(price, estimate) {
+  if (price == null || !estimate) return 1;
+  const ratio = price / estimate;
+  if (ratio > 4 || ratio < 0.2) return 0.4;
+  if (ratio > 2.5 || ratio < 0.35) return 0.7;
+  return 1;
+}
+
 /* Leading all-caps token, e.g. "KNODD bin with lid 40L" → "KNODD". */
 export function ikeaArticleName(title) {
   const m = String(title || "").match(/^([A-ZÅÄÖÉØÆÜ]{3,}(?:\s+[A-ZÅÄÖÉØÆÜ0-9]{2,})?)\b/);
@@ -268,7 +289,7 @@ function createAdapter(config) {
     name: config.name,
     searchUrl: config.searchUrl,
 
-    async find(title, { confident = 0.85, maxPageFetches = 3, extraQueries = [] } = {}) {
+    async find(title, { confident = 0.85, maxPageFetches = 3, extraQueries = [], estimate = null } = {}) {
       const tried = [];
       const seen = new Set();
       const candidates = [];
@@ -317,13 +338,17 @@ function createAdapter(config) {
         const product = await readProductPage(candidate.url, tried);
         if (!product) continue;
 
-        const score = matchScore(product.name || slugName(candidate.url), title, { retailer: config.name });
+        const base = matchScore(product.name || slugName(candidate.url), title, { retailer: config.name });
+        const priceFactor = pricePlausibility(product.price, estimate);
+        const score = base * priceFactor;
         tried.push({
           step: "score",
           url: candidate.url,
           ok: true,
           score: Number(score.toFixed(2)),
           band: bandFor(score),
+          price: product.price,
+          priceFactor: priceFactor === 1 ? undefined : priceFactor,
           name: product.name,
         });
 
@@ -375,6 +400,7 @@ function createIkeaAdapter(config) {
     async find(title, opts = {}) {
       const tried = [];
       let best = null;
+      const { estimate = null } = opts;
 
       /* The JSON endpoint the website itself calls returns name, image
          and price together — one request instead of two, and the names
@@ -386,7 +412,10 @@ function createIkeaAdapter(config) {
         try {
           const { json } = await fetchJson(api);
           const ranked = ikeaCandidatesFromApi(json)
-            .map((c) => ({ ...c, score: matchScore(c.name || slugName(c.url), title, { retailer: IKEA }) }))
+            .map((c) => ({
+              ...c,
+              score: matchScore(c.name || slugName(c.url), title, { retailer: IKEA }) * pricePlausibility(c.price, opts.estimate),
+            }))
             .sort((a, b) => b.score - a.score);
           tried.push({ step: "ikea:api", query, ok: ranked.length > 0, found: ranked.length });
 
