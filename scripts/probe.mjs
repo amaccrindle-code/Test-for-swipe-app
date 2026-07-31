@@ -79,11 +79,14 @@ async function probeSearch(retailer, title) {
     show("url", found.url);
     show("strategy", found.strategy);
     show("match", found.score != null ? found.score.toFixed(2) : null);
-    const weak = found.score != null && found.score < 0.7;
-    console.log(`\n  → RESOLVED in ${((Date.now() - started) / 1000).toFixed(1)}s${weak ? "  ⚠ but the match is weak — check the name above is really the product" : ""}`);
+    show("quality", found.quality);
+    const inexact = found.quality && found.quality !== "exact";
+    console.log(
+      `\n  → RESOLVED in ${((Date.now() - started) / 1000).toFixed(1)}s` +
+        (inexact ? `  — a ${found.quality} match, which the card will label as such` : "")
+    );
   } else {
     console.log(`  → FAILED: ${found.reason}`);
-    if (found.near) console.log(`     closest was "${found.near.name}" at ${found.near.url}`);
   }
   return found;
 }
@@ -160,23 +163,22 @@ await closeBrowser();
 rule("VERDICT");
 for (const { retailer, search, page } of results) {
   const s = search?.ok
-    ? `✓ resolved${search.score != null && search.score < 0.7 ? ` (weak match ${search.score.toFixed(2)})` : ""}`
+    ? `✓ resolved (${search.quality}, ${search.score.toFixed(2)})`
     : `✗ ${search?.reason || "no lookup"}`;
   console.log(`    ${retailer.padEnd(12)} search→product  ${s}`);
   console.log(`    ${" ".repeat(12)} product page    ${page?.ok ? `✓ parses (json-ld: ${page.hadJsonLd ? "yes" : "no"}, via: ${page.via})` : "✗ did not parse"}`);
 }
 
-const weak = results.filter((r) => r.search?.ok && r.search.score != null && r.search.score < 0.7);
-const allGood = results.every((r) => r.search?.ok && r.page?.ok) && !weak.length;
+const weak = results.filter((r) => r.search?.ok && r.search.quality !== "exact");
+const allGood = results.every((r) => r.search?.ok && r.page?.ok);
 
 console.log(
   allGood
-    ? `\n  Approach holds. Run \`npm run scrape\` — 210 options at ~1/sec is roughly 10-20 minutes.\n`
-    : weak.length
-      ? `\n  Everything resolved, but ${weak.length} match${weak.length === 1 ? " is" : "es are"} weak — the scraper may be\n` +
-        `  landing on near-miss products. Worth pasting this output back before the full run.\n`
-      : `\n  Something above did not resolve. Paste this output back and I will adjust the\n` +
-        `  adapter for whatever the page actually returned.\n`
+    ? `\n  Approach holds${weak.length ? `, with ${weak.length} inexact match${weak.length === 1 ? "" : "es"} — that is working as\n  intended: a real photo and price, labelled as a stand-in on the card` : ""}.\n` +
+        `  Run \`npm run scrape:sample\` to check the hit rate across the list, or\n` +
+        `  \`npm run scrape\` to do all 210 — roughly 15-20 minutes.\n`
+    : `\n  Something above did not resolve at all. Paste this output back and I will adjust\n` +
+        `  the adapter for whatever the page actually returned.\n`
 );
 
 process.exit(allGood ? 0 : 1);

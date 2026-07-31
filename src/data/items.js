@@ -397,12 +397,10 @@ export const ALREADY = [
   "Plates, glasses, mugs",
 ];
 
-/* Retailer search page, used as the card's link when the scraper
-   could not resolve a real product URL. */
-export const searchUrl = (retailer, q) =>
-  retailer === IKEA
-    ? `https://www.ikea.com/gb/en/search/?q=${encodeURIComponent(q)}`
-    : `https://www.johnlewis.com/search?search-term=${encodeURIComponent(q)}`;
+/* Retailer search page, used as the card's link when the scraper could
+   not resolve a real product URL. Defined in retailers.js so adding a
+   shop is one entry in one file. */
+export { searchUrl } from "./retailers.js";
 
 /* Stable key for one option, shared by the app, the scraper and the
    overrides file. Changing this format invalidates products.json. */

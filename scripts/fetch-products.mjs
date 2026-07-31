@@ -188,10 +188,6 @@ async function resolveOption(option) {
   if (!found.ok) {
     const err = new Error(found.reason);
     err.tried = found.tried;
-    /* Carry the rejected near-miss through to the caller so it can be
-       recorded. It is not good enough to show on a card, but it is
-       often a fine substitute and only Andy can judge that. */
-    err.near = found.near;
     throw err;
   }
   if (!found.image) {
@@ -206,6 +202,11 @@ async function resolveOption(option) {
 
 const failures = [];
 let resolved = 0;
+
+const truncate = (str, len) => {
+  const v = String(str ?? "");
+  return v.length > len ? v.slice(0, len - 1) + "…" : v;
+};
 
 console.log(
   `\nSwipe the flat — product scraper\n` +
@@ -247,6 +248,10 @@ for (const [index, option] of work.entries()) {
       remoteImage: found.image,
       strategy: found.strategy,
       match: found.score == null ? null : Number(found.score.toFixed(2)),
+      /* exact | close | substitute — the app labels the last two on the
+         card rather than passing them off as the product asked for. */
+      quality: found.quality || null,
+      wanted: option.title,
       scrapedAt: new Date().toISOString(),
     };
     dirty = true;
@@ -254,33 +259,12 @@ for (const [index, option] of work.entries()) {
     await saveProducts();
 
     const price = found.price != null ? `£${found.price}` : "no price";
-    const warn = found.score != null && found.score < 0.6 ? "  ⚠ weak match" : "";
-    console.log(`${label}  ✓ ${shortTitle}  →  ${price}  ${found.strategy}${warn}`);
+    const mark = { exact: "✓", close: "~", substitute: "≈" }[found.quality] || "✓";
+    const note = found.quality === "exact" ? "" : `  ${found.quality}: ${truncate(found.name, 40)}`;
+    console.log(`${label}  ${mark} ${shortTitle}  →  ${price}${note}`);
   } catch (err) {
     failures.push({ option, reason: err.message, tried: err.tried });
 
-    /* Record the near-miss under a separate key. The app ignores
-       anything without `localImage`, so this never reaches a card —
-       it only surfaces on the review page as a suggestion. */
-    if (err.near) {
-      products[option.key] = {
-        localImage: null,
-        sourceUrl: null,
-        price: null,
-        name: null,
-        retailer: option.retailer,
-        rejected: {
-          name: err.near.name,
-          url: err.near.url,
-          price: err.near.price ?? null,
-          image: err.near.image ?? null,
-          match: Number(err.near.score.toFixed(2)),
-        },
-        scrapedAt: new Date().toISOString(),
-      };
-      dirty = true;
-      await saveProducts();
-    }
     console.log(`${label}  ✗ ${shortTitle}  →  ${err.message}`);
   }
 }
@@ -318,11 +302,26 @@ if (failures.length) {
   );
 }
 
-const weak = Object.entries(products).filter(([, p]) => p.match != null && p.match < 0.6);
-if (weak.length) {
-  console.log(`\n  ${weak.length} weak matches worth eyeballing on the review page:`);
-  for (const [key, p] of weak.slice(0, 15)) console.log(`    ${key.padEnd(22)} ${p.name}`);
-  if (weak.length > 15) console.log(`    … and ${weak.length - 15} more`);
+const bands = Object.values(products).reduce((acc, p) => {
+  if (p.quality) acc[p.quality] = (acc[p.quality] || 0) + 1;
+  return acc;
+}, {});
+
+if (Object.keys(bands).length) {
+  console.log(`\n  match quality:`);
+  console.log(`    exact       ${String(bands.exact || 0).padStart(3)}  the product asked for`);
+  console.log(`    close       ${String(bands.close || 0).padStart(3)}  right category, likely a variant`);
+  console.log(`    substitute  ${String(bands.substitute || 0).padStart(3)}  a stand-in, labelled as such on the card`);
+}
+
+const swaps = Object.entries(products).filter(([, p]) => p.quality && p.quality !== "exact" && p.name);
+if (swaps.length) {
+  console.log(`\n  ${swaps.length} option${swaps.length === 1 ? "" : "s"} resolved to something other than what was asked for:`);
+  for (const [key, p] of swaps.slice(0, 15)) {
+    console.log(`    ${key.padEnd(20)} ${truncate(p.wanted, 34).padEnd(34)} → ${truncate(p.name, 40)}`);
+  }
+  if (swaps.length > 15) console.log(`    … and ${swaps.length - 15} more`);
+  console.log(`\n  All have a real photo and price. Review them at /review.html and swap any\n  you dislike by pasting a better URL into overrides.json.`);
 }
 
 console.log("");

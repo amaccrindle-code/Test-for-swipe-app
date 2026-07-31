@@ -433,6 +433,7 @@ export default function SwipeKitOut() {
               {product?.name || opt.title}
             </div>
             <div style={{ fontFamily: BODY, fontSize: 13.5, color: T.inkSoft, marginTop: 3 }}>{opt.desc}</div>
+            <Swap product={product} wanted={opt.title} />
             <a
               href={product?.sourceUrl || searchUrl(opt.retailer, opt.title)}
               target="_blank"
@@ -500,6 +501,29 @@ function Thumb({ product, id }) {
   if (product && product.image && !broken)
     return <img src={product.image} alt="" onError={() => setBroken(true)} style={{ width: 34, height: 34, objectFit: "contain", background: "#fff", borderRadius: 3 }} />;
   return <Sketch id={id} size={26} color={T.olive} />;
+}
+
+/* When the scraper could not find the exact product it resolves the
+   nearest real one instead — a photo and a live price beat a drawing.
+   That is only honest if the card says so, so it names what was
+   originally asked for. */
+function Swap({ product, wanted }) {
+  if (!product || !product.quality || product.quality === "exact") return null;
+  const substitute = product.quality === "substitute";
+  return (
+    <div
+      style={{
+        fontFamily: MONO,
+        fontSize: 9.5,
+        letterSpacing: ".1em",
+        color: substitute ? T.brick : T.inkFaint,
+        marginTop: 7,
+        lineHeight: 1.5,
+      }}
+    >
+      {substitute ? "STAND-IN FOR" : "CLOSEST TO"} {wanted.toUpperCase()}
+    </div>
+  );
 }
 
 /* Marks a price as my own estimate rather than a scraped one, so the

@@ -58,12 +58,11 @@ for (const [index, option] of sample.entries()) {
     found = { ok: false, reason: err.message };
   }
 
-  const near = found.ok ? null : found.near;
-  results.push({ option, found, near });
+  results.push({ option, found });
 
-  const mark = found.ok ? (found.score >= 0.7 ? "✓" : "~") : near ? "✗" : "·";
-  const score = found.ok ? found.score?.toFixed(2) : near ? near.score.toFixed(2) : "—";
-  const resolved = found.ok ? found.name : near ? `(rejected) ${near.name}` : found.reason;
+  const mark = !found.ok ? "·" : { exact: "✓", close: "~", substitute: "≈" }[found.quality] || "?";
+  const score = found.ok ? found.score.toFixed(2) : "—";
+  const resolved = found.ok ? found.name : found.reason;
   const price = found.ok && found.price != null ? `£${found.price}` : "";
 
   console.log(
@@ -77,46 +76,47 @@ await closeBrowser();
 /* ── Report ───────────────────────────────────────────────── */
 
 const by = (retailer) => results.filter((r) => r.option.retailer === retailer);
-const strong = (list) => list.filter((r) => r.found.ok && r.found.score >= 0.7).length;
-const weak = (list) => list.filter((r) => r.found.ok && r.found.score < 0.7).length;
-const rejected = (list) => list.filter((r) => !r.found.ok && r.near).length;
-const nothing = (list) => list.filter((r) => !r.found.ok && !r.near).length;
+const band = (list, q) => list.filter((r) => r.found.ok && r.found.quality === q).length;
+const withPhoto = (list) => list.filter((r) => r.found.ok && r.found.image).length;
+const nothing = (list) => list.filter((r) => !r.found.ok).length;
 
 const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : "—");
 
 console.log(`\n${"─".repeat(78)}`);
-console.log(`  ✓ strong   confident match, score ≥ 0.70`);
-console.log(`  ~ weak     resolved but worth eyeballing`);
-console.log(`  ✗ rejected found something plausible but too different to trust`);
-console.log(`  · nothing  no candidate at all`);
+console.log(`  ✓ exact       the product asked for`);
+console.log(`  ~ close       right category, likely a variant or sibling`);
+console.log(`  ≈ substitute  a real product standing in, labelled as such on the card`);
+console.log(`  · nothing     no photo at all — the card falls back to a drawing`);
 console.log(`${"─".repeat(78)}\n`);
 
 for (const retailer of [...new Set(results.map((r) => r.option.retailer))]) {
   const list = by(retailer);
   console.log(
     `  ${retailer.padEnd(12)} ${String(list.length).padStart(3)} sampled   ` +
-      `✓ ${String(strong(list)).padStart(3)} (${pct(strong(list), list.length)})   ` +
-      `~ ${String(weak(list)).padStart(3)}   ✗ ${String(rejected(list)).padStart(3)}   · ${String(nothing(list)).padStart(3)}`
+      `✓ ${String(band(list, "exact")).padStart(3)}   ` +
+      `~ ${String(band(list, "close")).padStart(3)}   ` +
+      `≈ ${String(band(list, "substitute")).padStart(3)}   ` +
+      `· ${String(nothing(list)).padStart(3)}   ` +
+      `→ ${pct(withPhoto(list), list.length)} swipeable`
   );
 }
 
-const total = results.length;
-const good = strong(results) + weak(results);
-console.log(`\n  overall      ${good}/${total} resolved (${pct(good, total)})`);
+console.log(`\n  overall      ${withPhoto(results)}/${results.length} cards would show a real photo and price (${pct(withPhoto(results), results.length)})`);
 
-const rejects = results.filter((r) => !r.found.ok && r.near);
-if (rejects.length) {
-  console.log(`\n  Rejected near-misses — are any of these actually fine?`);
-  for (const r of rejects) {
+const swaps = results.filter((r) => r.found.ok && r.found.quality !== "exact");
+if (swaps.length) {
+  console.log(`\n  Resolved to something other than what was asked for:`);
+  for (const r of swaps) {
     console.log(`    wanted    ${r.option.title}`);
-    console.log(`    offered   ${r.near.name}  ${r.near.price != null ? `£${r.near.price}` : ""}  (${r.near.score.toFixed(2)})`);
-    console.log(`              ${r.near.url}`);
+    console.log(`    got       ${r.found.name}  ${r.found.price != null ? `£${r.found.price}` : ""}  (${r.found.quality}, ${r.found.score.toFixed(2)})`);
   }
-  console.log(
-    `\n  If these look like reasonable substitutes, the titles in items.js are\n` +
-      `  descriptions rather than real listings, and the fix is to rename those\n` +
-      `  options to products John Lewis actually stocks — not to loosen matching.`
-  );
+  console.log(`\n  These all show a photo and a real price, labelled on the card. Swap any you\n  dislike from /review.html.`);
+}
+
+const blanks = results.filter((r) => !r.found.ok);
+if (blanks.length) {
+  console.log(`\n  Found nothing at all — these fall back to a drawing:`);
+  for (const r of blanks) console.log(`    ${r.option.retailer.padEnd(12)} ${r.option.title}  — ${r.found.reason}`);
 }
 
 console.log("");

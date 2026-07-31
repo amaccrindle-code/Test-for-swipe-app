@@ -8,6 +8,11 @@ Product photos and prices are resolved **once, at build time**, by a scraper
 that writes a local data file and caches the images. The app itself does no
 lookup at runtime.
 
+The point is a card with a real photo and a real price to decide against. An
+exact match is the goal, but a sensible alternative beats a drawing — so the
+scraper never rejects a product for being merely inexact. It resolves the
+nearest real thing and the card says so.
+
 ## Running it
 
 ```bash
@@ -95,17 +100,30 @@ for an exact IKEA article-name match (`KNODD`, `VÖRDA`) and two penalties that
 word overlap alone misses:
 
 - **Lead token.** The first meaningful word is nearly always the brand or
-  range. A candidate without it is a different product line — which is how
-  "ANYDAY sensor bin 45L" was resolving to an EKO bin on shared words alone.
+  range. A candidate leading with a *different* brand is penalised hard; one
+  that merely drops a sub-brand while still leading with a word you asked for
+  ("John Lewis Beech Chopping Board" vs "John Lewis ANYDAY beech chopping
+  board") only gets a nudge.
 - **Size.** 45L against 50L, or 16 piece against 24 piece, is the wrong
   variant even when every other word agrees. Units are normalised first, so
   `40 l`, `40L` and `40 litres` compare as the same size.
 
-For John Lewis the scraper opens the top few candidates and keeps the
-**best-scoring resolved product**, rather than the first one over the
-threshold — the search page returns eight near-identical bins and the right
-one does not reliably sort first. Anything below 0.6 is flagged as a weak
-match in the log and on the review page.
+The scraper opens the top few candidates and keeps the **best-scoring resolved
+product** rather than the first one over a threshold — search pages return
+eight near-identical bins and the right one does not reliably sort first.
+
+Nothing is discarded for scoring low. The result carries a quality band
+instead:
+
+| Band | Score | What the card shows |
+| --- | --- | --- |
+| **exact** | ≥ 0.70 | the product as named |
+| **close** | ≥ 0.45 | the product, plus `CLOSEST TO <what you asked for>` |
+| **substitute** | > 0 | the product, plus `STAND-IN FOR <what you asked for>` in red |
+| *(none)* | — | the hand-drawn icon and your estimated price |
+
+So a card almost always has a photo and a live price, and you always know
+whether it is the thing you named. `npm run scrape:sample` reports the mix.
 
 It is **resumable**: anything already in `products.json` with its image still
 on disk is skipped, so you can stop it and rerun without redoing work. It
@@ -128,10 +146,10 @@ Open `/review.html`. Every option is listed with what was wanted on the left
 and what the scraper resolved on the right, filtered by status — weak matches
 and failures first.
 
-Rejected near-misses are kept rather than thrown away. The scraper records
-what it found and why it refused it, and the review page shows it with a
-**USE THIS ONE** button — one click if the substitute is actually fine. These
-never reach a swipe card on their own; only your acceptance promotes them.
+Filter by **Stand-in** to see everything the scraper substituted, and by
+**Close** for likely variants. Both have photos and real prices and are
+perfectly usable — the filters exist so you can upgrade the ones you care
+about, not because they are broken.
 
 When one is wrong: open the retailer, find the right product, paste its URL
 into the box on that row. The page builds the corrected `overrides.json` at
@@ -152,6 +170,31 @@ out fields the scraper got right.
 **`overrides.json` is only ever read by the scraper, never written to**, so
 corrections survive every re-scrape.
 
+## Adding a retailer
+
+Add an entry to `src/data/retailers.js`:
+
+```js
+Argos: {
+  name: "Argos",
+  searchUrl: (q) => `https://www.argos.co.uk/search/${encodeURIComponent(q)}/`,
+  productUrl: /argos\.co\.uk\/product\/\d+/i,
+},
+```
+
+Then use that `name` as the retailer string on any option in `items.js`. That
+is the whole job — the scraper builds an adapter from the config, the app
+picks up the search links, and the receipt groups by it automatically.
+
+The generic adapter is search page → product links → JSON-LD, which is how
+nearly every retailer works. Only add a `strategy` if a site needs something
+else; IKEA has one because it publishes a JSON search endpoint that answers in
+a single request. A couple of ready-made examples sit commented out in the
+file.
+
+If a new retailer blocks plain requests, the headless-browser rung kicks in
+automatically — `npx playwright install chromium` to have it available.
+
 ## Layout
 
 ```
@@ -161,6 +204,7 @@ src/
   theme.js             design tokens, shared by both
   data/
     items.js           the 70 items and 210 options — the source of truth
+    retailers.js       where things can be bought; add a shop here
     icons.jsx          hand-drawn SVG fallbacks, one per item
     products.json      written by the scraper. Do not hand-edit
     overrides.json     your corrections. The scraper never writes here

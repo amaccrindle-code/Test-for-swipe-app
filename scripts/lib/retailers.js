@@ -1,25 +1,43 @@
 /* ────────────────────────────────────────────────────────────
    Retailer adapters.
 
-   Each adapter turns a wanted product title into one resolved product:
-   page URL, image URL, price and exact name. Both follow the same
-   ladder, and every rung is recorded in `tried` so the probe and the
-   failure log can show exactly where a lookup fell over.
+   Turns a wanted product title into one resolved product: page URL,
+   image, price and exact name.
 
-     IKEA        search API (name + image + price in one hop)
-                 → search page HTML → product page JSON-LD
-     John Lewis  search page HTML → product page JSON-LD
-                 → headless browser for either, when blocked
+   The point of the app is a card with a real photo and a real price to
+   swipe on. An exact match is the goal, but a sensible alternative with
+   a photo beats a drawing — so nothing is rejected merely for being
+   inexact. Instead every result carries a quality band:
 
-   Nothing here writes to disk. fetch-products.mjs owns all state.
+     exact       ≥ 0.70   confidently the product that was asked for
+     close       ≥ 0.45   right category, likely a variant or sibling
+     substitute  > 0      a stand-in; real product, not the one named
+     (failure)            nothing resolved at all
+
+   The app labels close and substitute honestly on the card, and the
+   review page sorts by band so the doubtful ones are easy to correct.
+
+   Adapters are built from src/data/retailers.js. Most sites need
+   nothing but a search URL and a product-URL pattern; only IKEA has a
+   bespoke strategy, because it publishes a JSON search endpoint that
+   answers in one request.
    ──────────────────────────────────────────────────────────── */
 
+import { RETAILERS, retailerConfig } from "../../src/data/retailers.js";
 import { fetchJson } from "./net.js";
 import { getPage } from "./page.js";
 import { extractProduct, links, urlsInSource } from "./parse.js";
 
 export const IKEA = "IKEA";
 export const JL = "John Lewis";
+
+export const QUALITY = { exact: 0.7, close: 0.45 };
+
+export function bandFor(score) {
+  if (score >= QUALITY.exact) return "exact";
+  if (score >= QUALITY.close) return "close";
+  return "substitute";
+}
 
 /* ── Matching ─────────────────────────────────────────────── */
 
@@ -29,7 +47,7 @@ const STOP = new Set([
 
 /* Units get folded onto their number so "40 l", "40L" and "40 litres"
    all become the one token "40l" — a size mismatch is one of the
-   clearest signals that a candidate is the wrong product. */
+   clearest signals that a candidate is a different variant. */
 const UNIT = { litres: "l", litre: "l", ltr: "l", l: "l", cm: "cm", mm: "mm", pieces: "pc", piece: "pc", pcs: "pc", pc: "pc" };
 const UNIT_RE = /(\d+)\s*(litres|litre|ltr|l|cm|mm|pieces|piece|pcs|pc)\b/g;
 
@@ -53,15 +71,9 @@ const sizes = (list) => list.filter((t) => SIZE_RE.test(t));
    0 → nothing in common, 1 → every meaningful word accounted for.
 
    Word overlap alone is not enough. "ANYDAY sensor bin 45L" and "EKO
-   Deluxe Mirage Sensor Bin 50L" share two words out of four and score
-   0.50, but they are different products at different prices. So two
-   penalties sit on top:
-
-     lead token  the first meaningful word is almost always the brand or
-                 range (ANYDAY, Brabantia, KNODD). A candidate missing it
-                 is a different product line.
-     size        45L against 50L, or 16 piece against 24 piece, is the
-                 wrong variant even when every other word agrees. */
+   Deluxe Mirage Sensor Bin 50L" share two words out of four, so two
+   penalties sit on top to keep the right product ahead of its
+   neighbours in the ranking. */
 export function matchScore(candidateName, wantedTitle) {
   const want = tokens(wantedTitle);
   const gotList = tokens(candidateName);
@@ -76,11 +88,10 @@ export function matchScore(candidateName, wantedTitle) {
   /* A missing lead token means one of two very different things.
 
      If the candidate leads with some other brand — ANYDAY wanted, EKO
-     offered — it is a different product line and the penalty is harsh.
-     If it just omits a sub-brand while still leading with a word we
-     asked for ("John Lewis Beech Chopping Board" against "John Lewis
-     ANYDAY beech chopping board"), that is naming drift on the same
-     product and deserves only a nudge. */
+     offered — it is a different product line. If it just omits a
+     sub-brand while still leading with a word we asked for ("John Lewis
+     Beech Chopping Board" against "John Lewis ANYDAY beech chopping
+     board"), that is naming drift on the same product. */
   const lead = want.find((t) => !SIZE_RE.test(t));
   if (lead && !got.has(lead)) {
     const theirLead = gotList.find((t) => !SIZE_RE.test(t));
@@ -101,13 +112,16 @@ export function ikeaArticleName(title) {
   return m ? m[1].trim() : null;
 }
 
-/* Progressively looser queries. The first that returns a good match wins,
-   so ordering matters: most specific first. */
+/* Progressively looser queries, most specific first.
+
+   The later variants matter more than they used to: when the exact
+   product does not exist, a broader query is what surfaces the category
+   so a substitute can be found at all. */
 export function queryVariants(title, retailer) {
   const out = [];
   const push = (q) => {
     const clean = String(q || "").replace(/\s+/g, " ").trim();
-    if (clean && !out.includes(clean)) out.push(clean);
+    if (clean && clean.length > 2 && !out.includes(clean)) out.push(clean);
   };
 
   if (retailer === IKEA) {
@@ -115,15 +129,25 @@ export function queryVariants(title, retailer) {
     if (article) push(article);
     push(title);
     if (article) push(title.slice(article.length));
-  } else {
-    push(title);
-    /* "John Lewis ANYDAY cutlery set 16 piece" → "ANYDAY cutlery set 16 piece".
-       Keep ANYDAY: it is a brand, not boilerplate. */
-    push(title.replace(/^John Lewis\s+(?!ANYDAY)/i, ""));
-    push(title.replace(/^John Lewis\s+/i, ""));
-    /* Drop the trailing count, which often differs from the listed SKU. */
-    push(title.replace(/\b\d+\s*(piece|pc|pcs|pack)\b/i, ""));
+    return out;
   }
+
+  push(title);
+  /* Own-brand prefixes are noise in a search box. Keep ANYDAY, which is
+     a real range, but drop the "John Lewis" that precedes it. */
+  push(title.replace(/^John Lewis\s+(?!ANYDAY)/i, ""));
+  push(title.replace(/^John Lewis\s+/i, ""));
+  /* Counts and sizes often differ from the listed SKU. */
+  push(title.replace(/\b\d+\s*(piece|pc|pcs|pack)\b/i, ""));
+  /* Last resort: the generic noun phrase, brand and numbers gone. This
+     is what finds a stand-in when the named product does not exist —
+     "ANYDAY sensor bin 45L" becomes "sensor bin". */
+  push(
+    tokens(title)
+      .filter((t) => !SIZE_RE.test(t) && !/^\d+$/.test(t))
+      .slice(-3)
+      .join(" ")
+  );
   return out;
 }
 
@@ -139,10 +163,49 @@ async function readProductPage(url, tried) {
     url: page.finalUrl,
     ok: Boolean(product.image),
     jsonLd: product.hasJsonLd,
-    via: product.via,
   });
   if (!product.image) return null;
-  return { ...product, url: page.finalUrl, renderedWith: page.via };
+  return { ...product, url: page.finalUrl };
+}
+
+/* Product URLs are slugged with the product name, which is a usable
+   match target before the page has been fetched. */
+function slugName(url) {
+  try {
+    const path = new URL(url).pathname.replace(/\/p\d+\/?$/i, "").replace(/\/$/, "");
+    const last = path.split("/").filter(Boolean).pop() || "";
+    return decodeURIComponent(last).replace(/-\d{6,}$/, "").replace(/-/g, " ");
+  } catch {
+    return "";
+  }
+}
+
+/* Strip tracking and variant query strings so one product does not
+   appear as several candidates. */
+function canonical(href) {
+  try {
+    const u = new URL(href);
+    u.search = "";
+    u.hash = "";
+    return u.href.replace(/\/$/, "");
+  } catch {
+    return href;
+  }
+}
+
+function result(best, tried, strategy) {
+  const score = best.score ?? 0;
+  return {
+    ok: true,
+    url: best.url,
+    name: best.name || null,
+    image: best.image || null,
+    price: best.price ?? null,
+    score,
+    quality: bandFor(score),
+    strategy,
+    tried,
+  };
 }
 
 /* Walk a JSON tree collecting every object that satisfies a predicate. */
@@ -159,9 +222,90 @@ const num = (v) => {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 };
 
-/* ── IKEA ─────────────────────────────────────────────────── */
+/* ── The generic adapter ──────────────────────────────────── */
 
-const IKEA_PRODUCT_RE = /\/gb\/en\/p\/[^/]+\/?$/i;
+/* Search page → product links → JSON-LD on the product page. This is
+   how nearly every retailer works, so a new one usually needs no code
+   at all: just an entry in src/data/retailers.js. */
+function createAdapter(config) {
+  return {
+    name: config.name,
+    searchUrl: config.searchUrl,
+
+    async find(title, { confident = 0.85, maxPageFetches = 3 } = {}) {
+      const tried = [];
+      const seen = new Set();
+      const candidates = [];
+
+      for (const query of queryVariants(title, config.name)) {
+        const page = await getPage(config.searchUrl(query), tried, "search");
+        if (!page?.html) continue;
+
+        /* Anchors are the curated result list. The source sweep also
+           catches carousels and "customers also viewed", which is why
+           an unfiltered pass returned 118 candidates for one bin — so
+           only fall back to it when there are no anchors at all. */
+        const anchored = links(page.html, page.finalUrl, (h) => config.productUrl.test(h));
+        const found = anchored.length
+          ? anchored
+          : urlsInSource(page.html, page.finalUrl, (h) => config.productUrl.test(h));
+
+        let added = 0;
+        for (const href of found) {
+          const url = canonical(href);
+          if (seen.has(url)) continue;
+          seen.add(url);
+          candidates.push({ url, slugScore: matchScore(slugName(url), title) });
+          added += 1;
+        }
+        tried.push({ step: "search:links", query, ok: added > 0, found: added });
+
+        /* A strong slug match means this query was good enough; looser
+           variants would only add noise. */
+        if (candidates.some((c) => c.slugScore >= confident)) break;
+      }
+
+      if (!candidates.length) return { ok: false, reason: "no candidates found", tried };
+
+      candidates.sort((a, b) => b.slugScore - a.slugScore);
+
+      /* Open the most promising few and score their real names — slug
+         scores are too crude to separate near-identical listings, and
+         the best candidate does not reliably sort first. */
+      let best = null;
+      let fetches = 0;
+      for (const candidate of candidates) {
+        if (fetches >= maxPageFetches) break;
+        fetches += 1;
+
+        const product = await readProductPage(candidate.url, tried);
+        if (!product) continue;
+
+        const score = matchScore(product.name || slugName(candidate.url), title);
+        tried.push({
+          step: "score",
+          url: candidate.url,
+          ok: true,
+          score: Number(score.toFixed(2)),
+          band: bandFor(score),
+          name: product.name,
+        });
+
+        if (!best || score > best.score) best = { ...product, score };
+        if (score >= confident) break;
+      }
+
+      if (!best) return { ok: false, reason: "found candidates but no page yielded an image", tried };
+
+      /* Deliberately no threshold. A real photo and a real price for a
+         near-enough product is the outcome we want; the quality band
+         and the review page carry the honesty. */
+      return result(best, tried, `${config.name}:product-page`);
+    },
+  };
+}
+
+/* ── IKEA ─────────────────────────────────────────────────── */
 
 function ikeaCandidatesFromApi(json) {
   /* The search payload shape shifts between releases, so rather than
@@ -175,221 +319,72 @@ function ikeaCandidatesFromApi(json) {
       num(p.priceNumeral) ??
       num(p.price?.numeral) ??
       num(p.salesPrice?.current?.wholeNumber) ??
-      num(p.price?.mainPriceProps?.price) ??
       null,
   }));
 }
 
-const ikeaAdapter = {
-  name: IKEA,
+function createIkeaAdapter(config) {
+  const generic = createAdapter(config);
 
-  searchUrl: (q) => `https://www.ikea.com/gb/en/search/?q=${encodeURIComponent(q)}`,
-
-  async find(title, { minScore = 0.5, maxPageFetches = 2 } = {}) {
-    const tried = [];
-    let best = null;
-
-    for (const q of queryVariants(title, IKEA)) {
-      /* Rung 1: the JSON search endpoint the website itself calls.
-         It returns name, image and price together, so a hit here costs
-         one request instead of two. */
-      const api = `https://sik.search.blue.cdtapps.com/gb/en/search-result-page?q=${encodeURIComponent(
-        q
-      )}&size=12&types=PRODUCT`;
-      let candidates = [];
-      try {
-        const { json } = await fetchJson(api);
-        candidates = ikeaCandidatesFromApi(json);
-        tried.push({ step: "ikea:api", url: api, ok: true, found: candidates.length });
-      } catch (err) {
-        tried.push({ step: "ikea:api", url: api, ok: false, error: err.message });
-      }
-
-      /* Rung 2: scrape product links off the human search page. */
-      if (!candidates.length) {
-        const searchUrl = ikeaAdapter.searchUrl(q);
-        const page = await getPage(searchUrl, tried, "ikea:search");
-        if (page?.html) {
-          const found = [
-            ...links(page.html, page.finalUrl, (h) => IKEA_PRODUCT_RE.test(h)),
-            ...urlsInSource(page.html, page.finalUrl, (h) => IKEA_PRODUCT_RE.test(h)),
-          ];
-          candidates = [...new Set(found)].slice(0, 8).map((url) => ({ url, name: slugName(url) }));
-          tried.push({ step: "ikea:search:links", ok: candidates.length > 0, found: candidates.length });
-        }
-      }
-
-      const ranked = candidates
-        .map((c) => ({ ...c, score: matchScore(c.name || slugName(c.url), title) }))
-        .sort((a, b) => b.score - a.score);
-
-      if (ranked.length && (!best || ranked[0].score > best.score)) best = ranked[0];
-
-      /* Good enough and already complete: no product page fetch needed. */
-      if (best && best.score >= minScore && best.image && best.price != null) {
-        return done(best, tried, "ikea:api");
-      }
-
-      /* Otherwise fill the gaps from the product page itself. */
-      let fetches = 0;
-      for (const cand of ranked) {
-        if (cand.score < minScore || fetches >= maxPageFetches) break;
-        fetches += 1;
-        const product = await readProductPage(cand.url, tried);
-        if (product) {
-          return done(
-            {
-              url: product.url,
-              name: product.name || cand.name,
-              image: product.image || cand.image,
-              price: product.price ?? cand.price,
-              score: cand.score,
-            },
-            tried,
-            "ikea:product-page"
-          );
-        }
-      }
-    }
-
-    if (best?.image) return done(best, tried, "ikea:api:weak-match");
-    return { ok: false, reason: best ? `best match scored ${best.score.toFixed(2)}` : "no candidates", tried };
-  },
-};
-
-/* ── John Lewis ───────────────────────────────────────────── */
-
-/* John Lewis product URLs end in /pNNNNNNN. */
-const JL_PRODUCT_RE = /johnlewis\.com\/[^?#]*\/p\d{5,}/i;
-
-const jlAdapter = {
-  name: JL,
-
-  searchUrl: (q) => `https://www.johnlewis.com/search?search-term=${encodeURIComponent(q)}`,
-
-  /* Gather candidates across every query variant first, then read the
-     most promising product pages and score their real names.
-
-     Scoring the URL slug alone is too crude to pick between eight
-     near-identical bins, and taking the first candidate over the
-     threshold means a mediocre match wins simply by sorting earlier.
-     So: rank by slug, open the best few, and keep the highest-scoring
-     resolved product — stopping early only when one is clearly right. */
-  async find(title, { minScore = 0.55, confident = 0.85, maxPageFetches = 3 } = {}) {
-    const tried = [];
-    const seen = new Set();
-    const candidates = [];
-
-    for (const q of queryVariants(title, JL)) {
-      const page = await getPage(jlAdapter.searchUrl(q), tried, "jl:search");
-      if (!page?.html) continue;
-
-      /* Anchors are the curated result list. The source sweep also
-         catches "customers also viewed" and carousel state, which is
-         why an unfiltered pass returned 118 candidates for one bin —
-         so only fall back to it when there are no anchors at all. */
-      const anchored = links(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h));
-      const found = anchored.length
-        ? anchored
-        : urlsInSource(page.html, page.finalUrl, (h) => JL_PRODUCT_RE.test(h));
-      let added = 0;
-      for (const href of found) {
-        const url = canonicalJlUrl(href);
-        if (seen.has(url)) continue;
-        seen.add(url);
-        candidates.push({ url, slugScore: matchScore(slugName(url), title) });
-        added += 1;
-      }
-      tried.push({ step: "jl:search:links", ok: added > 0, found: added });
-
-      /* A strong slug match means the search term was good enough;
-         no need to try looser variants and collect noise. */
-      if (candidates.some((c) => c.slugScore >= confident)) break;
-    }
-
-    if (!candidates.length) return { ok: false, reason: "no candidates", tried };
-
-    candidates.sort((a, b) => b.slugScore - a.slugScore);
-
-    let best = null;
-    let fetches = 0;
-    for (const cand of candidates) {
-      if (fetches >= maxPageFetches) break;
-      /* Slug scores run low even for right answers, so open anything
-         not obviously wrong rather than pre-filtering on minScore. */
-      if (cand.slugScore < 0.25 && best) break;
-      fetches += 1;
-
-      const product = await readProductPage(cand.url, tried);
-      if (!product) continue;
-
-      const score = matchScore(product.name || slugName(cand.url), title);
-      tried.push({ step: "jl:score", url: cand.url, ok: score >= minScore, score: Number(score.toFixed(2)), name: product.name });
-
-      if (!best || score > best.score) best = { ...product, score };
-      if (score >= confident) break;
-    }
-
-    if (best && best.score >= minScore) {
-      return done({ url: best.url, name: best.name, image: best.image, price: best.price, score: best.score }, tried, "jl:product-page");
-    }
-    return {
-      ok: false,
-      reason: best
-        ? `best match "${best.name}" scored ${best.score.toFixed(2)}, below ${minScore}`
-        : "no candidate page could be read",
-      tried,
-      /* Rejected, but recorded: a near-miss is often a perfectly good
-         substitute and only Andy can judge that. The scraper stores it
-         without using it, and the review page offers it for one-click
-         acceptance. */
-      near: best || null,
-    };
-  },
-};
-
-/* Strip tracking and variant query strings so the same product does not
-   appear as several candidates. */
-function canonicalJlUrl(href) {
-  try {
-    const u = new URL(href);
-    u.search = "";
-    u.hash = "";
-    return u.href.replace(/\/$/, "");
-  } catch {
-    return href;
-  }
-}
-
-/* Product URLs are slugged with the product name, which is a usable
-   match target before we have fetched the page. */
-function slugName(url) {
-  try {
-    const path = new URL(url).pathname.replace(/\/p\d+\/?$/i, "").replace(/\/$/, "");
-    const last = path.split("/").filter(Boolean).pop() || "";
-    return decodeURIComponent(last).replace(/-\d{6,}$/, "").replace(/-/g, " ");
-  } catch {
-    return "";
-  }
-}
-
-function done(best, tried, strategy) {
   return {
-    ok: true,
-    url: best.url,
-    name: best.name || null,
-    image: best.image || null,
-    price: best.price ?? null,
-    score: best.score ?? null,
-    strategy,
-    tried,
+    name: config.name,
+    searchUrl: config.searchUrl,
+
+    async find(title, opts = {}) {
+      const tried = [];
+      let best = null;
+
+      /* The JSON endpoint the website itself calls returns name, image
+         and price together — one request instead of two, and the names
+         are cleaner than any slug. */
+      for (const query of queryVariants(title, IKEA)) {
+        const api = `https://sik.search.blue.cdtapps.com/gb/en/search-result-page?q=${encodeURIComponent(
+          query
+        )}&size=12&types=PRODUCT`;
+        try {
+          const { json } = await fetchJson(api);
+          const ranked = ikeaCandidatesFromApi(json)
+            .map((c) => ({ ...c, score: matchScore(c.name || slugName(c.url), title) }))
+            .sort((a, b) => b.score - a.score);
+          tried.push({ step: "ikea:api", query, ok: ranked.length > 0, found: ranked.length });
+
+          if (ranked.length && (!best || ranked[0].score > best.score)) best = ranked[0];
+          if (best && best.image && best.score >= QUALITY.exact) return result(best, tried, "ikea:api");
+        } catch (err) {
+          tried.push({ step: "ikea:api", query, ok: false, error: err.message });
+        }
+      }
+
+      if (best?.image) return result(best, tried, "ikea:api");
+
+      /* No usable API result: fall back to the ordinary search-page path. */
+      const fallback = await generic.find(title, opts);
+      fallback.tried = [...tried, ...(fallback.tried || [])];
+      return fallback;
+    },
   };
 }
 
-export const ADAPTERS = { [IKEA]: ikeaAdapter, [JL]: jlAdapter };
+/* ── Registry ─────────────────────────────────────────────── */
+
+const BUILDERS = { ikea: createIkeaAdapter };
+
+export const ADAPTERS = Object.fromEntries(
+  Object.values(RETAILERS).map((config) => [
+    config.name,
+    (BUILDERS[config.strategy] || createAdapter)(config),
+  ])
+);
 
 export function adapterFor(retailer) {
   const adapter = ADAPTERS[retailer];
-  if (!adapter) throw new Error(`No adapter for retailer "${retailer}"`);
+  if (!adapter) {
+    throw new Error(
+      `No adapter for retailer "${retailer}". Add an entry to src/data/retailers.js — ` +
+        `a name, a searchUrl and a productUrl pattern is usually all it needs.`
+    );
+  }
   return adapter;
 }
+
+export { retailerConfig };
