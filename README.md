@@ -309,8 +309,32 @@ Two things to know:
 Windows will likely pop up a firewall prompt the first time. Allow it on
 private networks; there is no need to allow public ones.
 
-For access without the PC running, `npm run build` produces a plain static
-site in `dist/` that any host will serve.
+### Hosted, so the PC can be off
+
+Every push deploys to GitHub Pages via `.github/workflows/deploy.yml`:
+
+**https://amaccrindle-code.github.io/Test-for-swipe-app/**
+
+The review page is at `/review.html` on the same address. The site is
+**public** — anyone with the link can see the list and the prices.
+
+If the first run fails, Pages needs turning on once by hand: repository
+Settings → Pages → Build and deployment → Source → **GitHub Actions**. The
+workflow asks for this automatically (`enablement: true`) but cannot always
+grant itself the permission.
+
+The workflow runs `npm test` before building, so a broken matcher fails the
+deploy rather than shipping.
+
+Cached product images are gitignored — scraped for personal use, not
+redistributed — so the deployed site has `products.json` but none of the
+image files. `src/ProductImage.jsx` falls back to each retailer's own image
+URL when a cached file is missing, which is why the hosted version still
+shows photos. Local paths are prefixed with Vite's `BASE_URL` so they resolve
+correctly under the `/Test-for-swipe-app/` subpath.
+
+Choices still live in `localStorage`, so the hosted site and your PC keep
+separate baskets.
 
 ## Getting the basket out
 

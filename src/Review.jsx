@@ -19,6 +19,7 @@ import { PRODUCTS } from "./data/products.js";
 import { RETAILER_NAMES } from "./data/retailers.js";
 import overrides from "./data/overrides.json";
 import { T, DISPLAY, BODY, MONO, money } from "./theme.js";
+import ProductImage from "./ProductImage.jsx";
 
 /* Same weak-match threshold the scraper warns at. */
 const WEAK = 0.6;
@@ -336,36 +337,21 @@ function Row({ row, draft, onDraft }) {
 }
 
 function Preview({ product }) {
-  const [broken, setBroken] = useState(false);
-  const showImg = Boolean(product?.image) && !broken;
-
   return (
     <div
       style={{
         width: 92,
         height: 92,
-        background: showImg ? "#fff" : T.oliveWash,
+        background: "#fff",
         border: `1px solid ${T.rule}`,
         borderRadius: 3,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         overflow: "hidden",
-        textAlign: "center",
       }}
     >
-      {showImg ? (
-        <img
-          src={product.image}
-          alt=""
-          onError={() => setBroken(true)}
-          style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
-        />
-      ) : (
-        <span style={{ fontFamily: MONO, fontSize: 8.5, letterSpacing: ".1em", color: T.inkFaint, padding: 6 }}>
-          {broken ? "WOULD NOT LOAD" : "NO PHOTO"}
-        </span>
-      )}
+      <ProductImage product={product} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
     </div>
   );
 }
