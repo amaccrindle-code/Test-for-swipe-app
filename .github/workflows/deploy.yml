@@ -45,11 +45,14 @@ jobs:
       - name: Test
         run: npm test
 
-      # A project page is served from /<repo>/, so asset URLs need that
-      # prefix. Passed here rather than set in vite.config.js so local
-      # dev and preview keep serving from the root.
+      # A relative base makes every asset URL relative to the page, so
+      # the site works at "/", at "/<repo>/", or anywhere else it lands.
+      # An absolute /<repo>/ prefix would also work, but only while the
+      # served path matches exactly — and a mismatch there is invisible
+      # except as a blank page. Passed here rather than in
+      # vite.config.js so local dev and preview keep serving from root.
       - name: Build
-        run: npm run build -- --base=/${{ github.event.repository.name }}/
+        run: npm run build -- --base=./
 
       - uses: actions/configure-pages@v5
         with:
