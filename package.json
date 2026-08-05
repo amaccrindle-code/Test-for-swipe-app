@@ -11,6 +11,7 @@
     "test": "node scripts/test-parsers.mjs",
     "scrape": "node scripts/fetch-products.mjs",
     "scrape:probe": "node scripts/probe.mjs",
+    "scrape:shops": "node scripts/shops.mjs",
     "scrape:sample": "node scripts/sample.mjs",
     "scrape:reset": "node scripts/fetch-products.mjs --reset",
     "scrape:doctor": "node scripts/doctor.mjs"

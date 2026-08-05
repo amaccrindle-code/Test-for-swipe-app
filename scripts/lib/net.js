@@ -22,19 +22,39 @@ const BROWSER_HEADERS = {
 };
 
 let minGapMs = 1000;
-let nextSlot = 0;
+
+/* One schedule per host rather than one for everything.
+
+   A single global queue meant eleven shops took eleven times as long as
+   one, despite none of them being asked for more than a request a
+   second. Keyed by hostname, each site still sees the same polite rate,
+   but they are no longer made to queue behind each other — which is the
+   difference between a 40-minute scrape and a seven-hour one. */
+const nextSlot = new Map();
 
 export function setRateLimit(ms) {
   minGapMs = Math.max(0, ms);
 }
 
+export function resetRateLimiter() {
+  nextSlot.clear();
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* Serialise every outbound request onto a ~1/sec schedule. */
-async function takeSlot() {
+const hostOf = (url) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "unknown";
+  }
+};
+
+async function takeSlot(url) {
+  const host = hostOf(url);
   const now = Date.now();
-  const at = Math.max(now, nextSlot);
-  nextSlot = at + minGapMs;
+  const at = Math.max(now, nextSlot.get(host) || 0);
+  nextSlot.set(host, at + minGapMs);
   if (at > now) await sleep(at - now);
 }
 
@@ -50,7 +70,7 @@ export class HttpError extends Error {
 }
 
 export async function fetchText(url, { timeoutMs = 20000, headers = {}, accept } = {}) {
-  await takeSlot();
+  await takeSlot(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -75,7 +95,7 @@ export async function fetchJson(url, opts = {}) {
 }
 
 export async function fetchBuffer(url, { timeoutMs = 30000, referer } = {}) {
-  await takeSlot();
+  await takeSlot(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {

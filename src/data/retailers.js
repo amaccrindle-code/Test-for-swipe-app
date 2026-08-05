@@ -43,16 +43,62 @@ export const RETAILERS = {
     productUrl: /dunelm\.com\/product\/[^/?#]+/i,
   },
 
+  Argos: {
+    name: "Argos",
+    searchUrl: (q) => `https://www.argos.co.uk/search/${encodeURIComponent(q)}/`,
+    productUrl: /argos\.co\.uk\/product\/\d+/i,
+  },
+
+  Dunelm: {
+    name: "Dunelm",
+    searchUrl: (q) => `https://www.dunelm.com/search?doSearch=true&q=${encodeURIComponent(q)}`,
+    productUrl: /dunelm\.com\/product\/[^/?#]+/i,
+  },
+
+  "Next Home": {
+    name: "Next Home",
+    searchUrl: (q) => `https://www.next.co.uk/search?w=${encodeURIComponent(q)}`,
+    productUrl: /next\.co\.uk\/(?:g|style)\d+/i,
+  },
+
+  "Zara Home": {
+    name: "Zara Home",
+    searchUrl: (q) => `https://www.zarahome.com/gb/en/search?searchTerm=${encodeURIComponent(q)}`,
+    productUrl: /zarahome\.com\/gb\/en\/[^?#]*-p\d+/i,
+  },
+
+  Habitat: {
+    name: "Habitat",
+    searchUrl: (q) => `https://www.habitat.co.uk/search/${encodeURIComponent(q)}/`,
+    productUrl: /habitat\.co\.uk\/product\/[^/?#]+/i,
+  },
+
+  Wayfair: {
+    name: "Wayfair",
+    searchUrl: (q) => `https://www.wayfair.co.uk/keyword.php?keyword=${encodeURIComponent(q)}`,
+    productUrl: /wayfair\.co\.uk\/[^?#]*-(?:pdp|W)\d+/i,
+  },
+
+  "La Redoute": {
+    name: "La Redoute",
+    searchUrl: (q) => `https://www.laredoute.co.uk/search/?q=${encodeURIComponent(q)}`,
+    productUrl: /laredoute\.co\.uk\/ppdp\/[^/?#]+/i,
+  },
+
+  Lakeland: {
+    name: "Lakeland",
+    searchUrl: (q) => `https://www.lakeland.co.uk/search?q=${encodeURIComponent(q)}`,
+    productUrl: /lakeland\.co\.uk\/\d+\/[^/?#]+/i,
+  },
+
   Amazon: {
     name: "Amazon",
     searchUrl: (q) => `https://www.amazon.co.uk/s?k=${encodeURIComponent(q)}`,
     productUrl: /amazon\.co\.uk\/(?:[^/]*\/)?dp\/[A-Z0-9]{10}/i,
-    /* Amazon detects and blocks automated requests aggressively and its
-       terms disallow scraping. Kept out of the automatic cross-retailer
-       fallback for that reason: it is available if an option names it
-       explicitly, but the scraper will not reach for it on its own, and
-       it will likely need the Playwright rung even then. */
-    fallback: false,
+    /* In the rotation at Andy's request. Amazon's terms disallow
+       scraping and it blocks automated requests hard, so expect it to
+       need the browser rung and still underperform. Their Product
+       Advertising API is the supported route if it matters. */
   },
 
 };
