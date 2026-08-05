@@ -18,7 +18,7 @@ import { adapterFor, QUALITY } from "./retailers.js";
    on three more shops when the named one already nailed it. */
 const GOOD_ENOUGH = QUALITY.exact;
 
-export async function resolveAcrossRetailers(option, { maxShops = 3, extraQueries = [] } = {}) {
+export async function resolveAcrossRetailers(option, { maxShops = 3, extraQueries = [], exclude = [], minPrice = null } = {}) {
   /* The list's own estimate, used to demote wildly mispriced variants —
      a £599 designer toaster where £170 was expected. */
   const estimate = option.price ?? null;
@@ -34,7 +34,7 @@ export async function resolveAcrossRetailers(option, { maxShops = 3, extraQuerie
   for (const retailer of order) {
     let found;
     try {
-      found = await adapterFor(retailer).find(option.title, { extraQueries, estimate });
+      found = await adapterFor(retailer).find(option.title, { extraQueries, estimate, exclude, minPrice });
     } catch (err) {
       attempts.push({ retailer, ok: false, reason: err.message });
       continue;

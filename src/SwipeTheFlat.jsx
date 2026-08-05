@@ -113,21 +113,22 @@ export default function SwipeKitOut() {
     []
   );
 
+  /* Swiping is a decision about the *item*, not a way to page through
+     options: right takes the option currently showing, left declines the
+     thing entirely and moves on. Comparing the three is what the option
+     strip under the card is for. */
   const reject = useCallback(() => {
     setFlying("left");
     setTimeout(
       () => {
         setFlying(null);
         setDrag(0);
-        if (o < CATALOGUE[i].options.length - 1) setO(o + 1);
-        else {
-          setChoices((c) => (c[CATALOGUE[i].id] ? c : { ...c, [CATALOGUE[i].id]: { type: "skip" } }));
-          nextItem(i);
-        }
+        setChoices((c) => ({ ...c, [CATALOGUE[i].id]: { type: "skip" } }));
+        nextItem(i);
       },
       reduced ? 0 : 200
     );
-  }, [i, o, nextItem, reduced]);
+  }, [i, nextItem, reduced]);
 
   const accept = useCallback(() => {
     setFlying("right");
@@ -200,13 +201,14 @@ export default function SwipeKitOut() {
     setDragging(false);
 
     const v = pointer.current.v; // px per ms
+    const direction = Math.sign(drag);
     const far = Math.abs(drag) > COMMIT_DISTANCE;
-    const flicked = Math.abs(v) > COMMIT_VELOCITY && Math.abs(drag) > 12;
+    /* Velocity can only confirm the direction the card actually moved.
+       Reading direction off velocity alone meant a small pull-back at
+       the end of a rightward drag registered as a left swipe. */
+    const flicked = Math.abs(v) > COMMIT_VELOCITY && Math.sign(v) === direction && Math.abs(drag) > 14;
     if (!far && !flicked) return setDrag(0);
 
-    /* A long slow drag is judged on where it ended up; a quick flick on
-       which way it was going. */
-    const direction = far ? Math.sign(drag) : Math.sign(v);
     if (direction > 0) accept();
     else reject();
   };
@@ -546,7 +548,7 @@ export default function SwipeKitOut() {
             }}
           >
             <Stamp show={drag > 44} side="right" label="IN THE BASKET" colour={T.olive} progress={progress} />
-            <Stamp show={drag < -44} side="left" label="NEXT OPTION" colour={T.brick} progress={progress} />
+            <Stamp show={drag < -44} side="left" label="NOT FOR ME" colour={T.brick} progress={progress} />
 
             <PhotoPane product={product} />
 
@@ -604,7 +606,7 @@ export default function SwipeKitOut() {
 
         {/* controls */}
         <div style={{ display: "flex", gap: 10, marginTop: 16, alignItems: "center" }}>
-          <RoundButton onClick={reject} label="✕" colour={T.brick} title="Next option" />
+          <RoundButton onClick={reject} label="✕" colour={T.brick} title="Skip this — not for me" />
           <button
             onClick={haveIt}
             style={{ flex: 1, fontFamily: BODY, fontSize: 14, padding: "13px 10px", borderRadius: 3, cursor: "pointer", background: T.card, color: T.inkSoft, border: `1px dashed ${T.rule}` }}
@@ -615,8 +617,8 @@ export default function SwipeKitOut() {
         </div>
 
         <div style={{ fontFamily: MONO, fontSize: 10, color: T.inkFaint, marginTop: 14, letterSpacing: ".08em", textAlign: "center" }}>
-          {item.options.length > 1 ? "SWIPE LEFT FOR THE NEXT OPTION · RIGHT TO BUY · " : "ONLY OPTION · "}
-          {o + 1} OF {item.options.length}
+          SWIPE RIGHT TO BUY · LEFT TO SKIP
+          {item.options.length > 1 && ` · TAP BELOW TO COMPARE ${item.options.length}`}
         </div>
       </div>
     </Shell>

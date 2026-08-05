@@ -39,6 +39,16 @@ export const QUALITY = { exact: 0.7, close: 0.55 };
    quality — the bands do that. */
 export const MINIMUM = 0.12;
 
+/* Words that mark a listing as a different kind of object entirely, in a
+   way word overlap cannot see. "TÅRTSPADE washing up brush" resolved to
+   a "John Lewis Washing Up Set Toy" — every word matched, but it is a
+   children's toy. Only penalised when the wanted title did not ask. */
+const OFF_CATEGORY = [
+  "toy", "toys", "playset", "role play", "pretend", "dolls", "doll",
+  "kids", "children", "childrens", "child", "infant", "baby", "nursery",
+  "miniature", "replacement", "spare", "refill", "cartridge",
+];
+
 export function bandFor(score) {
   if (score >= QUALITY.exact) return "exact";
   if (score >= QUALITY.close) return "close";
@@ -120,6 +130,17 @@ export function matchScore(candidateName, wantedTitle, { retailer } = {}) {
   const wantSizes = sizes(want);
   const gotSizes = sizes(gotList);
   if (wantSizes.length && gotSizes.length && !wantSizes.some((s) => gotSizes.includes(s))) score *= 0.6;
+
+  /* A listing that announces itself as a toy, a spare part or a
+     children's version is not a substitute for the real thing. */
+  const wantedText = normalise(wantedTitle);
+  const candidateText = normalise(candidateName);
+  for (const word of OFF_CATEGORY) {
+    if (candidateText.includes(word) && !wantedText.includes(word)) {
+      score *= 0.15;
+      break;
+    }
+  }
 
   /* The head noun is what the thing *is* — bin, fryer, lamp, towels.
      Everything before it is brand and qualifier. A candidate missing it
@@ -289,7 +310,7 @@ function createAdapter(config) {
     name: config.name,
     searchUrl: config.searchUrl,
 
-    async find(title, { confident = 0.85, maxPageFetches = 3, extraQueries = [], estimate = null } = {}) {
+    async find(title, { confident = 0.85, maxPageFetches = 4, extraQueries = [], estimate = null, exclude = [], minPrice = null } = {}) {
       const tried = [];
       const seen = new Set();
       const candidates = [];
@@ -312,6 +333,9 @@ function createAdapter(config) {
           const url = canonical(href);
           if (seen.has(url)) continue;
           seen.add(url);
+          /* Already taken by a cheaper tier of the same item — offering
+             it again would give two options the identical product. */
+          if (exclude.includes(url)) continue;
           candidates.push({ url, slugScore: matchScore(slugName(url), title, { retailer: config.name }) });
           added += 1;
         }
@@ -340,7 +364,10 @@ function createAdapter(config) {
 
         const base = matchScore(product.name || slugName(candidate.url), title, { retailer: config.name });
         const priceFactor = pricePlausibility(product.price, estimate);
-        const score = base * priceFactor;
+        /* Tiers must climb. A splurge that costs less than the sensible
+           option is not a splurge, whatever it scores on words. */
+        const tierFactor = minPrice != null && product.price != null && product.price < minPrice ? 0.3 : 1;
+        const score = base * priceFactor * tierFactor;
         tried.push({
           step: "score",
           url: candidate.url,
@@ -348,6 +375,7 @@ function createAdapter(config) {
           score: Number(score.toFixed(2)),
           band: bandFor(score),
           price: product.price,
+          belowTier: tierFactor === 1 ? undefined : true,
           priceFactor: priceFactor === 1 ? undefined : priceFactor,
           name: product.name,
         });
@@ -411,10 +439,16 @@ function createIkeaAdapter(config) {
         )}&size=12&types=PRODUCT`;
         try {
           const { json } = await fetchJson(api);
+          const exclude = opts.exclude || [];
+          const minPrice = opts.minPrice ?? null;
           const ranked = ikeaCandidatesFromApi(json)
+            .filter((c) => !exclude.includes(canonical(c.url)))
             .map((c) => ({
               ...c,
-              score: matchScore(c.name || slugName(c.url), title, { retailer: IKEA }) * pricePlausibility(c.price, opts.estimate),
+              score:
+                matchScore(c.name || slugName(c.url), title, { retailer: IKEA }) *
+                pricePlausibility(c.price, opts.estimate) *
+                (minPrice != null && c.price != null && c.price < minPrice ? 0.3 : 1),
             }))
             .sort((a, b) => b.score - a.score);
           tried.push({ step: "ikea:api", query, ok: ranked.length > 0, found: ranked.length });

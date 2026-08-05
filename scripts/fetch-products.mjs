@@ -163,7 +163,7 @@ async function cacheImage(imageUrl, option, referer) {
 
 /* ── Resolve one option ───────────────────────────────────── */
 
-async function resolveOption(option) {
+async function resolveOption(option, context = { usedUrls: [], minPrice: null }) {
   const override = overrides[option.key];
 
   /* An override that names the correct product page short-circuits the
@@ -184,7 +184,11 @@ async function resolveOption(option) {
     };
   }
 
-  const found = await resolveAcrossRetailers(option, { extraQueries: [option.itemName] });
+  const found = await resolveAcrossRetailers(option, {
+    extraQueries: [option.itemName],
+    exclude: context.usedUrls,
+    minPrice: context.minPrice,
+  });
   if (!found.ok) {
     const err = new Error(found.reason);
     err.tried = found.attempts;
@@ -222,52 +226,74 @@ process.on("SIGINT", () => {
   console.log("\n  interrupted — saving progress");
 });
 
-for (const [index, option] of work.entries()) {
+/* Options are resolved item by item rather than one flat list, because
+   the three tiers constrain each other: no two may land on the same
+   product, and each must cost at least what the tier below it did.
+   Resolved in tier order so the cheaper choice is known first. */
+const byItem = new Map();
+for (const option of work) {
+  if (!byItem.has(option.itemId)) byItem.set(option.itemId, []);
+  byItem.get(option.itemId).push(option);
+}
+
+let done = 0;
+for (const [itemId, options] of byItem) {
   if (interrupted) break;
-  const label = `[${String(index + 1).padStart(3)}/${work.length}] ${option.key}`;
-  const shortTitle = option.title.length > 46 ? option.title.slice(0, 45) + "…" : option.title;
+  options.sort((a, b) => a.optionIndex - b.optionIndex);
 
-  try {
-    const found = await resolveOption(option);
-    let localImage = null;
+  /* Seed from siblings already in products.json, so a partial re-run
+     still respects what the other tiers of this item settled on. */
+  const context = { usedUrls: [], minPrice: null };
+  for (const [key, saved] of Object.entries(products)) {
+    if (key.startsWith(`${itemId}:`) && saved.sourceUrl) context.usedUrls.push(saved.sourceUrl);
+  }
+
+  for (const option of options) {
+    if (interrupted) break;
+    done += 1;
+    const label = `[${String(done).padStart(3)}/${work.length}] ${option.key}`;
+    const shortTitle = option.title.length > 42 ? option.title.slice(0, 41) + "…" : option.title;
+
     try {
-      localImage = await cacheImage(found.image, option, found.url);
+      const found = await resolveOption(option, context);
+      let localImage = null;
+      try {
+        localImage = await cacheImage(found.image, option, found.url);
+      } catch (err) {
+        console.warn(`${label}  image download failed (${err.message})`);
+      }
+
+      products[option.key] = {
+        localImage,
+        sourceUrl: found.url,
+        price: found.price ?? null,
+        name: found.name || option.title,
+        retailer: found.retailer || option.retailer,
+        switchedRetailer: Boolean(found.switchedRetailer),
+        remoteImage: found.image,
+        strategy: found.strategy,
+        match: found.score == null ? null : Number(found.score.toFixed(2)),
+        quality: found.quality || null,
+        wanted: option.title,
+        scrapedAt: new Date().toISOString(),
+      };
+      dirty = true;
+      resolved += 1;
+      await saveProducts();
+
+      /* Constrain the tiers above this one. */
+      if (found.url) context.usedUrls.push(found.url);
+      if (found.price != null) context.minPrice = found.price;
+
+      const price = found.price != null ? `£${found.price}` : "no price";
+      const mark = { exact: "✓", close: "~", substitute: "≈" }[found.quality] || "✓";
+      const shop = found.switchedRetailer ? `  [${found.retailer}]` : "";
+      const note = found.quality === "exact" ? "" : `  ${found.quality}: ${truncate(found.name, 34)}`;
+      console.log(`${label}  ${mark} ${shortTitle}  →  ${price}${shop}${note}`);
     } catch (err) {
-      /* A resolved product with an un-downloadable image is still worth
-         keeping: the app can fall back to the drawing but still link to
-         the real page and show the real price. */
-      console.warn(`${label}  image download failed (${err.message})`);
+      failures.push({ option, reason: err.message, tried: err.tried });
+      console.log(`${label}  ✗ ${shortTitle}  →  ${err.message}`);
     }
-
-    products[option.key] = {
-      localImage,
-      sourceUrl: found.url,
-      price: found.price ?? null,
-      name: found.name || option.title,
-      retailer: found.retailer || option.retailer,
-      switchedRetailer: Boolean(found.switchedRetailer),
-      remoteImage: found.image,
-      strategy: found.strategy,
-      match: found.score == null ? null : Number(found.score.toFixed(2)),
-      /* exact | close | substitute — the app labels the last two on the
-         card rather than passing them off as the product asked for. */
-      quality: found.quality || null,
-      wanted: option.title,
-      scrapedAt: new Date().toISOString(),
-    };
-    dirty = true;
-    resolved += 1;
-    await saveProducts();
-
-    const price = found.price != null ? `£${found.price}` : "no price";
-    const mark = { exact: "✓", close: "~", substitute: "≈" }[found.quality] || "✓";
-    const shop = found.switchedRetailer ? `  [${found.retailer}]` : "";
-    const note = found.quality === "exact" ? "" : `  ${found.quality}: ${truncate(found.name, 36)}`;
-    console.log(`${label}  ${mark} ${shortTitle}  →  ${price}${shop}${note}`);
-  } catch (err) {
-    failures.push({ option, reason: err.message, tried: err.tried });
-
-    console.log(`${label}  ✗ ${shortTitle}  →  ${err.message}`);
   }
 }
 
