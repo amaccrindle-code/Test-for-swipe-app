@@ -43,18 +43,6 @@ export const RETAILERS = {
     productUrl: /dunelm\.com\/product\/[^/?#]+/i,
   },
 
-  Argos: {
-    name: "Argos",
-    searchUrl: (q) => `https://www.argos.co.uk/search/${encodeURIComponent(q)}/`,
-    productUrl: /argos\.co\.uk\/product\/\d+/i,
-  },
-
-  Dunelm: {
-    name: "Dunelm",
-    searchUrl: (q) => `https://www.dunelm.com/search?doSearch=true&q=${encodeURIComponent(q)}`,
-    productUrl: /dunelm\.com\/product\/[^/?#]+/i,
-  },
-
   "Next Home": {
     name: "Next Home",
     searchUrl: (q) => `https://www.next.co.uk/search?w=${encodeURIComponent(q)}`,
