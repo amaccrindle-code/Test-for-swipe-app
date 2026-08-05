@@ -8,6 +8,14 @@ import ProductImage from "./ProductImage.jsx";
 
 const STORAGE_KEY = "flatswipe:v2";
 
+/* How far, or how fast, a drag has to go before it counts as a decision.
+   Distance alone makes short flicks feel unresponsive; velocity alone
+   makes a slow deliberate drag impossible to abandon. Both, either. */
+const COMMIT_DISTANCE = 96;
+const COMMIT_VELOCITY = 0.45; // px per ms
+
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
 /* Only options the scraper resolved to a real photo make it into the
    app. A card exists to be judged on a picture and a price, so an
    option without one is not shown at all rather than falling back to a
@@ -42,11 +50,16 @@ export default function SwipeKitOut() {
   const [choices, setChoices] = useState({});
   const [saved, setSaved] = useState(null);
   const [drag, setDrag] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [flying, setFlying] = useState(null);
   const [copied, setCopied] = useState(false);
   const [saved2, setSaved2] = useState(false);
   const [reduced, setReduced] = useState(false);
   const startX = useRef(null);
+  /* Last pointer sample, for velocity. A flick should throw the card
+     even if it never travelled far enough to cross the distance
+     threshold — that is most of what makes a swipe feel physical. */
+  const pointer = useRef({ x: 0, t: 0, v: 0 });
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -161,20 +174,41 @@ export default function SwipeKitOut() {
     return () => window.removeEventListener("keydown", onKey);
   }, [phase, accept, reject, haveIt, back]);
 
+  const pointerX = (e) => (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
+
   const onStart = (e) => {
-    startX.current = e.touches ? e.touches[0].clientX : e.clientX;
+    startX.current = pointerX(e);
+    pointer.current = { x: startX.current, t: performance.now(), v: 0 };
+    setDragging(true);
   };
+
   const onMove = (e) => {
     if (startX.current === null) return;
-    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    const x = pointerX(e);
+    const t = performance.now();
+    const dt = t - pointer.current.t;
+    /* Ignore zero-length frames; they produce infinite velocity. */
+    if (dt > 0) pointer.current.v = (x - pointer.current.x) / dt;
+    pointer.current.x = x;
+    pointer.current.t = t;
     setDrag(x - startX.current);
   };
+
   const onEnd = () => {
     if (startX.current === null) return;
     startX.current = null;
-    if (drag > 95) accept();
-    else if (drag < -95) reject();
-    else setDrag(0);
+    setDragging(false);
+
+    const v = pointer.current.v; // px per ms
+    const far = Math.abs(drag) > COMMIT_DISTANCE;
+    const flicked = Math.abs(v) > COMMIT_VELOCITY && Math.abs(drag) > 12;
+    if (!far && !flicked) return setDrag(0);
+
+    /* A long slow drag is judged on where it ended up; a quick flick on
+       which way it was going. */
+    const direction = far ? Math.sign(drag) : Math.sign(v);
+    if (direction > 0) accept();
+    else reject();
   };
 
   if (phase === "loading")
@@ -407,8 +441,28 @@ export default function SwipeKitOut() {
   const item = CATALOGUE[i];
   const opt = item.options[o];
   const product = opt.product;
-  const rot = drag / 22;
-  const flyX = flying === "left" ? -520 : flying === "right" ? 520 : drag;
+  /* How committed the current drag looks, 0 to 1. Drives the stamp,
+     the tilt and how far the card behind has risen. */
+  const progress = Math.min(Math.abs(drag) / COMMIT_DISTANCE, 1);
+  const rot = clamp(drag / 16, -13, 13);
+  const flyX = flying === "left" ? -640 : flying === "right" ? 640 : drag;
+  const flyRot = flying === "left" ? -22 : flying === "right" ? 22 : rot;
+  /* Lifts very slightly as it is picked up, the way a card would. */
+  const scale = flying ? 0.94 : 1 - progress * 0.02;
+
+  const cardTransition = reduced
+    ? "none"
+    : dragging
+      ? "none"
+      : flying
+        ? "transform 280ms cubic-bezier(.4,0,.9,.35), opacity 240ms ease-out"
+        : /* Settling back: overshoot slightly, then come to rest. */
+          "transform 460ms cubic-bezier(.22,1.28,.36,1)";
+
+  /* The next card you would see, sitting under this one so the stack
+     reads as a deck rather than a slideshow. */
+  const beneath =
+    item.options[o + 1] || (CATALOGUE[i + 1] && CATALOGUE[i + 1].options[0]) || null;
 
   return (
     <Shell>
@@ -444,57 +498,104 @@ export default function SwipeKitOut() {
           ))}
         </div>
 
-        {/* card */}
-        <div
-          onTouchStart={onStart}
-          onTouchMove={onMove}
-          onTouchEnd={onEnd}
-          onMouseDown={onStart}
-          onMouseMove={(e) => startX.current !== null && onMove(e)}
-          onMouseUp={onEnd}
-          onMouseLeave={onEnd}
-          style={{
-            marginTop: 12,
-            background: T.card,
-            border: `1px solid ${T.rule}`,
-            borderRadius: 8,
-            overflow: "hidden",
-            transform: `translateX(${flyX}px) rotate(${flying ? (flying === "left" ? -14 : 14) : rot}deg)`,
-            transition: startX.current !== null || reduced ? "none" : "transform 200ms ease, opacity 200ms ease",
-            opacity: flying ? 0 : 1,
-            touchAction: "pan-y",
-            userSelect: "none",
-            position: "relative",
-          }}
-        >
-          {/* stamps */}
-          <Stamp show={drag > 55} side="right" label="IN THE BASKET" colour={T.olive} />
-          <Stamp show={drag < -55} side="left" label="NEXT OPTION" colour={T.brick} />
+        {/* card, with the next one showing beneath it */}
+        <div style={{ position: "relative", marginTop: 12 }}>
+          {beneath && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: T.card,
+                border: `1px solid ${T.rule}`,
+                borderRadius: 10,
+                overflow: "hidden",
+                /* Rises and squares up as the top card is drawn away. */
+                transform: `scale(${0.945 + progress * 0.055}) translateY(${(1 - progress) * 12}px)`,
+                opacity: 0.35 + progress * 0.45,
+                transition: reduced || dragging ? "none" : "transform 460ms cubic-bezier(.22,1.28,.36,1), opacity 300ms ease",
+              }}
+            >
+              <div style={{ height: "clamp(170px, 31vh, 260px)", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <ProductImage product={beneath.product} fallbackLabel="" style={{ maxHeight: "100%", maxWidth: "100%", objectFit: "contain" }} />
+              </div>
+            </div>
+          )}
 
-          <PhotoPane product={product} />
+          <div
+            onTouchStart={onStart}
+            onTouchMove={onMove}
+            onTouchEnd={onEnd}
+            onMouseDown={onStart}
+            onMouseMove={(e) => startX.current !== null && onMove(e)}
+            onMouseUp={onEnd}
+            onMouseLeave={onEnd}
+            style={{
+              position: "relative",
+              background: T.card,
+              border: `1px solid ${T.rule}`,
+              borderRadius: 10,
+              overflow: "hidden",
+              transform: `translateX(${flyX}px) rotate(${flyRot}deg) scale(${scale})`,
+              transition: cardTransition,
+              opacity: flying ? 0 : 1,
+              boxShadow: dragging ? "0 10px 26px rgba(34,38,28,.13)" : "0 1px 2px rgba(34,38,28,.05)",
+              touchAction: "pan-y",
+              userSelect: "none",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            <Stamp show={drag > 44} side="right" label="IN THE BASKET" colour={T.olive} progress={progress} />
+            <Stamp show={drag < -44} side="left" label="NEXT OPTION" colour={T.brick} progress={progress} />
 
-          <div style={{ padding: "14px 16px 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-              <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".16em", color: opt.tier === "Splurge" ? T.brick : T.olive }}>
+            <PhotoPane product={product} />
+
+            <div style={{ padding: "14px 16px 6px" }}>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".16em", color: opt.tier === "Splurge" ? T.brick : T.olive }}>
                 {opt.tier.toUpperCase()} · {(product?.retailer || opt.retailer).toUpperCase()}
-              </span>
-              <span style={{ fontFamily: MONO, fontSize: 15, color: T.ink, whiteSpace: "nowrap" }}>
-                {money(priceOf(product, opt))}
-                {isEstimate(product) && <Est />}
-              </span>
+              </div>
+
+              {/* Name and price on one baseline: the two things being
+                  judged, given equal billing and nothing between them. */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginTop: 7 }}>
+                <h3 style={{ flex: 1, minWidth: 0, fontFamily: BODY, fontSize: 17, fontWeight: 600, lineHeight: 1.25, color: T.ink, margin: 0 }}>
+                  {product?.name || opt.title}
+                </h3>
+                <span style={{ fontFamily: MONO, fontSize: 19, color: T.ink, whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {money(priceOf(product, opt))}
+                  {isEstimate(product) && <Est />}
+                </span>
+              </div>
+
+              <p style={{ fontFamily: BODY, fontSize: 13.5, lineHeight: 1.45, color: T.inkSoft, margin: "5px 0 0" }}>{opt.desc}</p>
+              <Swap product={product} wanted={opt.title} />
             </div>
-            <div style={{ fontFamily: BODY, fontSize: 17, fontWeight: 600, color: T.ink, marginTop: 6 }}>
-              {product?.name || opt.title}
-            </div>
-            <div style={{ fontFamily: BODY, fontSize: 13.5, color: T.inkSoft, marginTop: 3 }}>{opt.desc}</div>
-            <Swap product={product} wanted={opt.title} />
+
+            {/* Its own row, ruled off and tall enough for a thumb. */}
             <a
               href={product?.sourceUrl || searchUrl(opt.retailer, opt.title)}
               target="_blank"
               rel="noreferrer"
-              style={{ display: "inline-block", marginTop: 11, fontFamily: MONO, fontSize: 10.5, letterSpacing: ".1em", color: T.olive, textDecoration: "none" }}
+              onClick={(e) => {
+                /* A drag that ends over the link should not navigate. */
+                if (Math.abs(drag) > 8) e.preventDefault();
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                minHeight: 46,
+                marginTop: 10,
+                padding: "0 16px",
+                borderTop: `1px solid ${T.rule}`,
+                fontFamily: MONO,
+                fontSize: 10.5,
+                letterSpacing: ".1em",
+                color: T.olive,
+                textDecoration: "none",
+              }}
             >
-              {product?.sourceUrl ? "OPEN AT " : "SEARCH "}{(product?.retailer || opt.retailer).toUpperCase()} ↗
+              {product?.sourceUrl ? "OPEN AT " : "SEARCH "}
+              {(product?.retailer || opt.retailer).toUpperCase()} ↗
             </a>
           </div>
         </div>
@@ -527,7 +628,7 @@ export default function SwipeKitOut() {
    ──────────────────────────────────────────────────────────── */
 function PhotoPane({ product }) {
   return (
-    <div style={{ height: 250, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.rule}`, position: "relative" }}>
+    <div style={{ height: "clamp(170px, 31vh, 260px)", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: `1px solid ${T.rule}`, position: "relative" }}>
       <ProductImage
         product={product}
         draggable={false}
@@ -623,7 +724,7 @@ function Est() {
   );
 }
 
-function Stamp({ show, side, label, colour }) {
+function Stamp({ show, side, label, colour, progress = 0 }) {
   return (
     <div
       style={{
@@ -639,9 +740,10 @@ function Stamp({ show, side, label, colour }) {
         padding: "5px 9px",
         borderRadius: 3,
         background: "rgba(251,248,242,.92)",
-        transform: `rotate(${side === "right" ? -9 : 9}deg)`,
-        opacity: show ? 1 : 0,
-        transition: "opacity 120ms ease",
+        /* Grows into place as the drag commits, rather than blinking on. */
+        transform: `rotate(${side === "right" ? -9 : 9}deg) scale(${show ? 0.9 + progress * 0.18 : 0.8})`,
+        opacity: show ? Math.min(0.35 + progress * 1.1, 1) : 0,
+        transition: "opacity 120ms ease, transform 160ms cubic-bezier(.22,1.3,.36,1)",
         pointerEvents: "none",
       }}
     >
@@ -657,8 +759,8 @@ function RoundButton({ onClick, label, colour, title }) {
       title={title}
       aria-label={title}
       style={{
-        width: 54,
-        height: 54,
+        width: 58,
+        height: 58,
         borderRadius: "50%",
         border: `1px solid ${colour}`,
         background: T.card,
